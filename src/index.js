@@ -3,15 +3,23 @@ export const DEBUG = true;
 export class H2Encoding {
   /**
    * H2Encoding encodes values from the range [0, 2^n) into base-2 logarithmic bins
-   * with a configurable error bound.
+   * with a controllable error bound.
    * 
    * The number of bins must be less than 2^32, and the largest encodable value must
    * be less than 2^53.
    * 
    * @param {object} options
-   * @param {number} options.a - 2^a is the absolute error on the low end
-   * @param {number} options.b - 2^-b is the relative error on the high end
-   * @param {number} options.n? - 2^n-1 is the maximum encodable value (default: 53)
+   * @param {number} options.a - The `a` parameter controls the width of bins on
+   * the low end of the value range. Each bin is 2^a wide, so the absolute error on
+   * the low end is 2^a. Since the value range includes zero, there must be some
+   * "minimum unit" below which an absolute error is tolerable, since otherwise there
+   * would need to be infinite bins in order to satisfy the relative error constraint
+   * on values ever closer to zero. You can think of 2^a as this minimum unit.
+   * @param {number} options.b - The `b` parameter controls the width of bins on the
+   * high end of the value range. To bound the relative error, every power-of-2 range
+   * such as `[2, 4)` or `[4, 8)` is split into 2^b bins each, which upper-bounds the
+   * relative error bound by `2^-b`.
+   * @param {number} options.n? - 2^n-1 is the maximum encodable value (default: 53).
    * */
   constructor({ a, b, n = 53 }) {
     assertSafeInteger(a);
