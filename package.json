@@ -1,0 +1,24 @@
+{
+  "type": "module",
+  "name": "h2-histogram-js",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "vitest",
+    "build": "esbuild src/index.js --bundle --format=esm --outfile=dist/h2-histogram.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "esbuild": "^0.19.4",
+    "fast-check": "^3.13.1",
+    "typescript": "^5.2.2",
+    "vite": "^4.4.11",
+    "vitest": "^0.34.6"
+  },
+  "dependencies": {
+    "@types/node": "^20.8.2"
+  }
+}
