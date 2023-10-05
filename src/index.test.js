@@ -145,11 +145,9 @@ test('H2Histogram', () => {
   }
 
   {
-
-    // uses the nearest-rank method:
-    // https://en.wikipedia.org/wiki/Percentile#The_nearest-rank_method
-    // todo: til
     /**
+     * Calculate quantiles using the nearest-rank method:
+     * https://en.wikipedia.org/wiki/Percentile#The_nearest-rank_method
      * @param {Float64Array} values
      * @param {number} q
      */
