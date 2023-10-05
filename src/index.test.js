@@ -11,7 +11,6 @@ describe('H2Encoding', () => {
     expect(enc.b).toBe(7);
     expect(enc.n).toBe(20);
 
-
     fc.assert(fc.property(
       fc.double({ min: 1, max: 10, noNaN: true, }), // minimum unit
       // @ts-ignore
