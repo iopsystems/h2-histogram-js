@@ -159,7 +159,6 @@ test('H2Histogram', () => {
     }
 
     // Property test that quantiles are retrieved within the expected margin of error (compute-intensive)
-    console.clear();
     fc.assert(
       fc.property(
         fc.double({ min: 0.01, max: 1, minExcluded: true, noNaN: true }), // relativeError
