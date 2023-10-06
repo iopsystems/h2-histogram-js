@@ -118,7 +118,7 @@ export class H2Encoding {
    */
   decode(code) {
     // todo: make this more efficient
-    return { lower: this.lowest(code), upper: this.highest(code) };
+    return { lower: this.lower(code), upper: this.upper(code) };
   }
 
   // todo: why is this so much simpler?
@@ -127,7 +127,7 @@ export class H2Encoding {
    * Given a bin index, returns the lowest value that bin can contain.
    * @param {number} code
    */
-  lowest(code) {
+  lower(code) {
     const { a, b, c } = this;
 
     // There are 2^(c - a) = 2^(b + 1) bins below the cutoff.
@@ -162,19 +162,18 @@ export class H2Encoding {
     return segStart + bin * binWidth;
   }
 
-  // todo: this does not return the highest; it returns the value right after...
   /**
    * Given a bin index, returns the least upper bound on the highest value that bin can contain.
-   * For example, if the bin spans the range [0, 4), `highest` will return 4.
-   * Note that `highest` is the smallest value that lies *outside* the histogram range.
+   * For example, if the bin spans the range [0, 4), `upper` will return 4.
+   * Note that `upper` is the smallest value that lies *outside* the histogram range.
    * @param {number} code
    */
-  highest(code) {
+  upper(code) {
     DEBUG && assert(code <= this.maxCode);
     if (code === this.maxCode) {
       return this.maxValue();
     } else {
-      return this.lowest(code + 1);
+      return this.lower(code + 1);
     }
   }
 
@@ -184,7 +183,7 @@ export class H2Encoding {
    */
   binWidth(code) {
     assert(0 <= code && code <= this.maxCode);
-    return this.highest(code) - this.lowest(code) + 1;
+    return this.upper(code) - this.lower(code) + 1;
   }
 
   /**
@@ -373,7 +372,7 @@ export class H2Histogram {
 
     // Maximum value in that bin
 
-    return this.encoding.highest(this.bins[i]);
+    return this.encoding.upper(this.bins[i]);
   }
 
   /**
@@ -454,7 +453,8 @@ function u32(x) {
 }
 
 /**
- * A miniature implementation of H2 histogram encoding for values < 2^32
+ * A miniature implementation of H2 histogram encoding for values < 2^32.
+ * Returns the bin index of the bin containing `value`.
  * 
  * @param {number} value
  * @param {number} a
@@ -468,25 +468,26 @@ export function encode32(value, a, b) {
   return u32((value >>> (logSegment - b)) + ((logSegment - c + 1) << b));
 }
 
-// todo: the naming of lower/upper is inconsistent with lowest/highest in H2Histogram
 /**
- * A miniature implementation of H2 histogram decoding for values < 2^32
+ * A miniature implementation of H2 histogram decoding for values < 2^32.
+ * Returns an object { lower, upper } representing the half-closed interval
+ * [lower, upper) for the `index`-th bin.
  * 
- * @param {number} code
+ * @param {number} index
  * @param {number} a
  * @param {number} b
  */
-export function decode32(code, a, b) {
-  assertValid32(code, a, b);
+export function decode32(index, a, b) {
+  assertValid32(index, a, b);
   const c = a + b + 1;
   let lower, binWidth;
   const binsBelowCutoff = u32(1 << (c - a));
-  if (code < binsBelowCutoff) {
-    lower = u32(code << a);
+  if (index < binsBelowCutoff) {
+    lower = u32(index << a);
     binWidth = u32(1 << a);
   } else {
-    const logSegment = c + ((code - binsBelowCutoff) >>> b);
-    const binOffset = code & (u32(1 << b) - 1);
+    const logSegment = c + ((index - binsBelowCutoff) >>> b);
+    const binOffset = index & (u32(1 << b) - 1);
     lower = u32(1 << logSegment) + u32(binOffset << (logSegment - b));
     binWidth = u32(1 << (logSegment - b));
   }

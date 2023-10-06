@@ -55,9 +55,9 @@ describe('H2Encoding', () => {
             const { lower, upper } = decode32(code, enc.a, enc.b);
             expect(lower <= value && value <= upper).toBe(true);
           }
-          const lowest = enc.lowest(code);
-          const highest = enc.highest(code);
-          expect(lowest <= value && value <= highest).toBe(true);
+          const lower = enc.lower(code);
+          const higher = enc.upper(code);
+          expect(lower <= value && value <= higher).toBe(true);
         }
       ));
     }
