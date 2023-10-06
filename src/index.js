@@ -19,7 +19,7 @@ export class H2Encoding {
    * high end of the value range. To bound the relative error, every power-of-2 range
    * such as `[2, 4)` or `[4, 8)` is split into 2^b bins each, which upper-bounds the
    * relative error bound by `2^-b`.
-   * @param {number} options.n? - 2^n-1 is the maximum encodable value (default: 53).
+   * @param {number} options.n? - the maximum encodable value `2^n-1`. (default: 53).
    * */
   constructor({ a, b, n = 53 }) {
     assertSafeInteger(a);
