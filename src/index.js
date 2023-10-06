@@ -113,6 +113,14 @@ export class H2Encoding {
     return binsBelowSeg + binsWithinSeg;
   }
 
+  /**
+   * @param {number} code
+   */
+  decode(code) {
+    // todo: make this more efficient
+    return { lower: this.lowest(code), upper: this.highest(code) };
+  }
+
   // todo: why is this so much simpler?
   // https://github.com/pelikan-io/rustcommon/blob/main/histogram/src/config.rs#L157C16-L157C16
   /**
@@ -460,6 +468,7 @@ export function encode32(value, a, b) {
   return u32((value >>> (logSegment - b)) + ((logSegment - c + 1) << b));
 }
 
+// todo: the naming of lower/upper is inconsistent with lowest/highest in H2Histogram
 /**
  * A miniature implementation of H2 histogram decoding for values < 2^32
  * 
@@ -476,7 +485,7 @@ export function decode32(code, a, b) {
     lower = u32(code << a);
     binWidth = u32(1 << a);
   } else {
-    const logSegment = b + (code >>> b);
+    const logSegment = c + ((code - binsBelowCutoff) >>> b);
     const binOffset = code & (u32(1 << b) - 1);
     lower = u32(1 << logSegment) + u32(binOffset << (logSegment - b));
     binWidth = u32(1 << (logSegment - b));

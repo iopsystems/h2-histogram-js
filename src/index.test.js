@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
 import { describe, expect, it, test } from 'vitest';
-import { H2Encoding, H2Histogram, H2HistogramBuilder, encode32 } from './index.js';
+import { H2Encoding, H2Histogram, H2HistogramBuilder, decode32, encode32 } from './index.js';
 
 // todo: is relative error < or <= 2^-b?
 
@@ -52,6 +52,8 @@ describe('H2Encoding', () => {
           const code = enc.encode(value);
           if (value < 2 ** 32) {
             expect(encode32(value, enc.a, enc.b)).toBe(code);
+            const { lower, upper } = decode32(code, enc.a, enc.b);
+            expect(lower <= value && value <= upper).toBe(true);
           }
           const lowest = enc.lowest(code);
           const highest = enc.highest(code);
