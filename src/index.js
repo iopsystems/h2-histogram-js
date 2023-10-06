@@ -22,22 +22,16 @@ export class H2Encoding {
    * @param {number} options.n? - the maximum encodable value `2^n-1`. (default: 53).
    * */
   constructor({ a, b, n = 53 }) {
+    const c = a + b + 1;
     assertSafeInteger(a);
     assertSafeInteger(b);
     assertSafeInteger(n);
     assert(n <= 53, () => `expected n <= 53, got ${n}`);
-
-    const c = a + b + 1;
-    assert(
-      c < 32,
-      () => `expected cutoff parameter c = a + b + 1 <= 32, got ${a + b + 1}`
-    );
+    assert(c < 32, () => `expected cutoff c = a + b + 1 <= 32, got ${a + b + 1}`);
 
     this.a = u32(a);
     this.b = u32(b);
     this.n = u32(n);
-
-    // 2^c is the cutoff point between the relative & absolute regions
     this.c = u32(c);
 
     // The maxiumum possible bin index (ie. numBins - 1)
@@ -452,14 +446,14 @@ function u32(x) {
 }
 
 /**
- * A miniature implementation of H2 histograms for values < 2^32
+ * A miniature implementation of H2 histogram encoding for values < 2^32
  * 
  * @param {number} value
  * @param {number} a
  * @param {number} b
  */
 export function encode32(value, a, b) {
-  assertValid(value, a, b);
+  assertValid32(value, a, b);
   const c = a + b + 1;
   if (value < u32(1 << c)) return value >>> a;
   const logSegment = u32(31 - Math.clz32(value));
@@ -467,12 +461,14 @@ export function encode32(value, a, b) {
 }
 
 /**
+ * A miniature implementation of H2 histogram decoding for values < 2^32
+ * 
  * @param {number} code
  * @param {number} a
  * @param {number} b
  */
-function decode32(code, a, b) {
-  assertValid(code, a, b);
+export function decode32(code, a, b) {
+  assertValid32(code, a, b);
   const c = a + b + 1;
   let lower, binWidth;
   const binsBelowCutoff = u32(1 << (c - a));
@@ -489,11 +485,13 @@ function decode32(code, a, b) {
 }
 
 /**
+ * Common assertions on the input arguments to encode32 and decode32
+ * 
  * @param {number} x - code or value
  * @param {number} a - histogram `a` parameter
  * @param {number} b - histogram `b` parameter
  */
-function assertValid(x, a, b) {
+function assertValid32(x, a, b) {
   assert(x < 2 ** 32);
   assertSafeInteger(a);
   assertSafeInteger(b);
