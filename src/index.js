@@ -249,8 +249,16 @@ export class H2HistogramBuilder {
    * Increment the bin containing `value` by `count`.
    * @param {number} value
    */
-  increment(value, count = 1) {
+  incrementValue(value, count = 1) {
     const bin = this.encoding.encode(value);
+    this.counts[bin] += count;
+  }
+
+  /**
+   * Increment the bin `bin` by `count`.
+   * @param {number} bin
+   */
+  incrementBin(bin, count = 1) {
     this.counts[bin] += count;
   }
 
