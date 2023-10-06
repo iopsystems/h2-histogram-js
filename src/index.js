@@ -41,7 +41,9 @@ export class H2Encoding {
     this.c = u32(c);
 
     // The maxiumum possible bin index (ie. numBins - 1)
-    this.maxCode = u32(H2Encoding.maxCodeForParams({ a, b, n }));
+    const maxCode = H2Encoding.maxCodeForParams({ a, b, n });
+    assert(maxCode < 2 ** 32, `the number of bins for these parameters exceeds 2^32: ${maxCode + 1}`);
+    this.maxCode = u32(maxCode);
   }
 
   /**
