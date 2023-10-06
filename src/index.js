@@ -119,6 +119,8 @@ export class H2Encoding {
     return binsBelowSeg + binsWithinSeg;
   }
 
+  // todo: why is this so much simpler?
+  // https://github.com/pelikan-io/rustcommon/blob/main/histogram/src/config.rs#L157C16-L157C16
   /**
    * Given a bin index, returns the lowest value that bin can contain.
    * @param {number} code
@@ -127,7 +129,7 @@ export class H2Encoding {
     const { a, b, c } = this;
 
     // There are 2^(c - a) = 2^(b + 1) bins below the cutoff.
-    const binsBelowCutoff = 1 << (c - a);
+    const binsBelowCutoff = u32(1 << (c - a));
     if (code < binsBelowCutoff) {
       return u32(code << a);
     } 
@@ -158,6 +160,7 @@ export class H2Encoding {
     return segStart + bin * binWidth;
   }
 
+  // todo: this does not return the highest; it returns the value right after...
   /**
    * Given a bin index, returns the least upper bound on the highest value that bin can contain.
    * For example, if the bin spans the range [0, 4), `highest` will return 4.
