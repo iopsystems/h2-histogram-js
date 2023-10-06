@@ -159,6 +159,7 @@ export class H2Encoding {
   /**
    * Given a bin index, returns the least upper bound on the highest value that bin can contain.
    * For example, if the bin spans the range [0, 4), `highest` will return 4.
+   * Note that `highest` is the smallest value that lies *outside* the histogram range.
    * @param {number} code
    */
   highest(code) {
