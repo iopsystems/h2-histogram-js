@@ -482,25 +482,49 @@ function u32(x) {
 /**
  * A miniature implementation of H2 histograms for values < 2^32
  * 
- * @param {number} x
+ * @param {number} value
  * @param {number} a
  * @param {number} b
  */
-export function encode32(x, a, b) {
-  assert(x < 2 ** 32);
+export function encode32(value, a, b) {
+  assertValid(value, a, b);
   const c = a + b + 1;
-  assert(c < 32);
-  if (x < u32(1 << c)) return x >>> a;
-  const v = u32(31 - Math.clz32(x));
-  return u32((x >>> (v - b)) + ((v - c + 1) << b));
+  if (value < u32(1 << c)) return value >>> a;
+  const logSegment = u32(31 - Math.clz32(value));
+  return u32((value >>> (logSegment - b)) + ((logSegment - c + 1) << b));
 }
 
-export function decode32(x, a, b) {
-  assert(x < 2 ** 32);
+/**
+ * @param {number} code
+ * @param {number} a
+ * @param {number} b
+ */
+function decode32(code, a, b) {
+  assertValid(code, a, b);
   const c = a + b + 1;
-  assert(c < 32);
-  if (x < u32(1 << c)) return x >>> a;
-  const v = u32(31 - Math.clz32(x));
-  return u32((x >>> (v - b)) + ((v - c + 1) << b));
+  let lower, binWidth;
+  const binsBelowCutoff = u32(1 << (c - a));
+  if (code < binsBelowCutoff) {
+    lower = u32(code << a);
+    binWidth = u32(1 << a);
+  } else {
+    const logSegment = b + (code >>> b);
+    const binOffset = code & (u32(1 << b) - 1);
+    lower = u32(1 << logSegment) + u32(binOffset << (logSegment - b));
+    binWidth = u32(1 << (logSegment - b));
+  }
+  return { lower, upper: lower + binWidth };
 }
 
+/**
+ * @param {number} x - code or value
+ * @param {number} a - histogram `a` parameter
+ * @param {number} b - histogram `b` parameter
+ */
+function assertValid(x, a, b) {
+  assert(x < 2 ** 32);
+  assertSafeInteger(a);
+  assertSafeInteger(b);
+  const c = a + b + 1;
+  assert(c < 32);
+}
