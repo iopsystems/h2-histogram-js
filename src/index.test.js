@@ -110,9 +110,9 @@ test('H2Histogram', () => {
     // Basic tests with a 3-value histogram containing [1e5, 2e5, 3e5]
     const enc = H2Encoding.with({ relativeError: 0.01, maxValue: 1e6 });
     const builder = new H2HistogramBuilder(enc);
-    builder.increment(1e5, 100);
-    builder.increment(2e5, 100);
-    builder.increment(3e5, 100);
+    builder.incrementValue(1e5, 100);
+    builder.incrementValue(2e5, 100);
+    builder.incrementValue(3e5, 100);
     const hist = builder.build();
     expect(hist.numObservations).toBe(300);
     expect(hist.cumulativeCount(100)).toBe(0);
@@ -181,7 +181,7 @@ test('H2Histogram', () => {
                 values.sort();
                 const builder = new H2HistogramBuilder(enc);
                 for (const value of values) {
-                  builder.increment(value);
+                  builder.incrementValue(value);
                 }
                 const hist = builder.build();
 
