@@ -394,34 +394,6 @@ export class H2Histogram {
 }
 
 /**
- * 
- * @param {boolean} condition
- * @param {string | (() => string) } [message] - error message as a string or zero-argument function, 
- * to allow deferring the evaluation of an expensive message until the time an error occurs.
- */
-function assert(condition, message) {
-  const prefix = 'assertion error';
-  if (condition !== true) {
-    const text = typeof message === "function" ? message() : message;
-    throw new Error(text === undefined ? prefix : `${prefix}: ${text}`);
-  }
-};
-
-/**
- * @param {number} x
- */
-function assertSafeInteger(x) {
-  assert(Number.isSafeInteger(x), () => `expected safe integer, got ${x}`);
-}
-
-/**
- * @param {any} x
- */
-function assertDefined(x) {
-  assert(x !== undefined, 'expected a defined value, got undefined');
-};
-
-/**
  * Returns the largest index for which `pred` returns true, plus one.
  * If the predicate does not return true for any index, returns 0.
  * The predicate function `pred` is required to be monotonic, ie. 
@@ -528,3 +500,31 @@ function assertValid(x, a, b) {
   const c = a + b + 1;
   assert(c < 32);
 }
+
+/**
+ * 
+ * @param {boolean} condition
+ * @param {string | (() => string) } [message] - error message as a string or zero-argument function, 
+ * to allow deferring the evaluation of an expensive message until the time an error occurs.
+ */
+function assert(condition, message) {
+  const prefix = 'assertion error';
+  if (condition !== true) {
+    const text = typeof message === "function" ? message() : message;
+    throw new Error(text === undefined ? prefix : `${prefix}: ${text}`);
+  }
+};
+
+/**
+ * @param {number} x
+ */
+function assertSafeInteger(x) {
+  assert(Number.isSafeInteger(x), () => `expected safe integer, got ${x}`);
+}
+
+/**
+ * @param {any} x
+ */
+function assertDefined(x) {
+  assert(x !== undefined, 'expected a defined value, got undefined');
+};
