@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
 import { describe, expect, it, test } from 'vitest';
-import { H2Encoding, H2Histogram, H2HistogramBuilder } from './index.js';
+import { H2Encoding, H2Histogram, H2HistogramBuilder, encode32 } from './index.js';
 
 // todo: is relative error < or <= 2^-b?
 
@@ -45,12 +45,14 @@ describe('H2Encoding', () => {
      * @param {H2Encoding} enc
      */
     function propertyTest(enc) {
-      // 
       fc.assert(fc.property(
         fc.double({ min: 0, max: enc.maxValue(), noNaN: true, }),
         // @ts-ignore
         value => {
           const code = enc.encode(value);
+          if (value < 2 ** 32) {
+            expect(encode32(value, enc.a, enc.b)).toBe(code);
+          }
           const lowest = enc.lowest(code);
           const highest = enc.highest(code);
           expect(lowest <= value && value <= highest).toBe(true);
@@ -64,6 +66,8 @@ describe('H2Encoding', () => {
     propertyTest(new H2Encoding({ a: 20, b: 0, n: 53 }));
     propertyTest(new H2Encoding({ a: 0, b: 20, n: 53 }));
     propertyTest(new H2Encoding({ a: 0, b: 20, n: 21 }));
+    propertyTest(new H2Encoding({ a: 30, b: 0, n: 21 }));
+    propertyTest(new H2Encoding({ a: 0, b: 30, n: 1 }));
 
     for (let a = 0; a < 5; a++) {
       for (let b = 0; b < 5; b++) {
