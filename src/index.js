@@ -478,3 +478,29 @@ function u32(x) {
   DEBUG && assert(Math.abs(x) < 2 ** 32, () => `expected x < 2^32, got ${x}`);
   return x >>> 0;
 }
+
+/**
+ * A miniature implementation of H2 histograms for values < 2^32
+ * 
+ * @param {number} x
+ * @param {number} a
+ * @param {number} b
+ */
+export function encode32(x, a, b) {
+  assert(x < 2 ** 32);
+  const c = a + b + 1;
+  assert(c < 32);
+  if (x < u32(1 << c)) return x >>> a;
+  const v = u32(31 - Math.clz32(x));
+  return u32((x >>> (v - b)) + ((v - c + 1) << b));
+}
+
+export function decode32(x, a, b) {
+  assert(x < 2 ** 32);
+  const c = a + b + 1;
+  assert(c < 32);
+  if (x < u32(1 << c)) return x >>> a;
+  const v = u32(31 - Math.clz32(x));
+  return u32((x >>> (v - b)) + ((v - c + 1) << b));
+}
+
