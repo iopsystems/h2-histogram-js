@@ -508,6 +508,7 @@ export function decode32(index, a, b) {
  * @param {number} b - histogram `b` parameter
  */
 function assertValid32(x, a, b) {
+  assertSafeInteger(x);
   assert(x <= 2 ** 32 - 1);
   assertSafeInteger(a);
   assertSafeInteger(b);
