@@ -467,7 +467,7 @@ export function encode32(value, a, b) {
   const c = a + b + 1;
   if (value < u32(1 << c)) return value >>> a;
   const logSegment = u32(31 - Math.clz32(value));
-  return u32((value >>> (logSegment - b)) + ((logSegment - c + 1) << b));
+  return u32((value >>> (logSegment - b)) + u32((logSegment - c + 1) << b));
 }
 
 /**
