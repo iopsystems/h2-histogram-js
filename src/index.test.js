@@ -28,7 +28,6 @@ describe('H2Encoding', () => {
   test('H2Encoding.encode', () => {
     let enc = new H2Encoding({ a: 1, b: 2, n: 6 });
     let bins = [
-      // note: the last 2 values, currently 15, would be 16 if n was greater than 6.
       0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10,
       10, 10, 11, 11, 11, 11, 12, 12, 12, 12, 12, 12, 12, 12, 13, 13, 13, 13, 13,
       13, 13, 13, 14, 14, 14, 14, 14, 14, 14, 14, 15, 15, 15, 15, 15, 15, 15, 15
