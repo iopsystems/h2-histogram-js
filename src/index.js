@@ -2,11 +2,13 @@ export const DEBUG = true;
 
 export class H2Encoding {
   /**
-   * H2Encoding encodes values from the range [0, 2^n) into base-2 logarithmic bins
-   * with a controllable error bound.
+   * H2Encoding encodes values from the integer range [0, 2^n) into base-2 logarithmic
+   * bins with a controllable relative error bound.
    * 
    * The number of bins must be less than 2^32, and the largest encodable value must
    * be less than 2^53.
+   * 
+   * The histogram is designed to encode integer values only.
    * 
    * @param {object} options
    * @param {number} options.a - The `a` parameter controls the width of bins on
@@ -49,7 +51,7 @@ export class H2Encoding {
    * relative error in terms of microseconds, minimumUnit should be set to 1000. (default: 1)
    * @param {number} [options.maxValue] - maximum encodable value (default: 2^53 - 1)
    */
-  static with({ relativeError, minimumUnit = 1, maxValue = 2 ** 53 - 1 }) {
+  static params({ relativeError, minimumUnit = 1, maxValue = 2 ** 53 - 1 }) {
     assert(relativeError > 0 && relativeError <= 1, () => `expected relative error to be in (0, 1], got ${relativeError}`);
     // Since we use bit shifts to handle the parameters, we need `a` >= 0, so the minimum
     // unit must be a positive number greater than 1. 
@@ -75,6 +77,7 @@ export class H2Encoding {
   encode(value) {
     // We allow non-integral inputs since JS numbers are 64-bit floats.
     const { a, b, c } = this;
+    assertSafeInteger(value);
     assert(value >= 0 && value <= this.maxValue(), "expected value in histogram range [0, 2^n)");
 
     if (value < u32(1 << c)) {
@@ -163,9 +166,8 @@ export class H2Encoding {
   }
 
   /**
-   * Given a bin index, returns the least upper bound on the highest value that bin can contain.
-   * For example, if the bin spans the range [0, 4), `upper` will return 4.
-   * Note that `upper` is the smallest value that lies *outside* the histogram range.
+   * Given a bin index, returns the highest integer value that bin can contain.
+   * For example, if the bin spans the range [0, 3], `upper` will return 3.
    * @param {number} code
    */
   upper(code) {
@@ -173,7 +175,7 @@ export class H2Encoding {
     if (code === this.maxCode) {
       return this.maxValue();
     } else {
-      return this.lower(code + 1);
+      return this.lower(code + 1) - 1;
     }
   }
 
@@ -453,7 +455,7 @@ function u32(x) {
 }
 
 /**
- * A miniature implementation of H2 histogram encoding for values < 2^32.
+ * A miniature implementation of H2 histogram encoding for values <= 2^32-1.
  * Returns the bin index of the bin containing `value`.
  * 
  * @param {number} value
@@ -469,9 +471,9 @@ export function encode32(value, a, b) {
 }
 
 /**
- * A miniature implementation of H2 histogram decoding for values < 2^32.
- * Returns an object { lower, upper } representing the half-closed interval
- * [lower, upper) for the `index`-th bin.
+ * A miniature implementation of H2 histogram decoding for values <= 2^32-1.
+ * Returns an object { lower, upper } representing the inclusive bounds
+ * [lower, upper] for the `index`-th bin.
  * 
  * @param {number} index
  * @param {number} a
@@ -483,26 +485,30 @@ export function decode32(index, a, b) {
   let lower, binWidth;
   const binsBelowCutoff = u32(1 << (c - a));
   if (index < binsBelowCutoff) {
+    // we're in the linear section of the histogram
+    // where each bin is 2^a wide
     lower = u32(index << a);
     binWidth = u32(1 << a);
   } else {
+    // we're in the log section of the histogram
+    // with 2^b bins per log segment
     const logSegment = c + ((index - binsBelowCutoff) >>> b);
     const binOffset = index & (u32(1 << b) - 1);
     lower = u32(1 << logSegment) + u32(binOffset << (logSegment - b));
     binWidth = u32(1 << (logSegment - b));
   }
-  return { lower, upper: lower + binWidth };
+  return { lower, upper: u32(lower + (binWidth - 1)) };
 }
 
 /**
- * Common assertions on the input arguments to encode32 and decode32
+ * Common assertions on the input arguments to encode32 and decode32.
  * 
  * @param {number} x - code or value
  * @param {number} a - histogram `a` parameter
  * @param {number} b - histogram `b` parameter
  */
 function assertValid32(x, a, b) {
-  assert(x < 2 ** 32);
+  assert(x <= 2 ** 32 - 1);
   assertSafeInteger(a);
   assertSafeInteger(b);
   const c = a + b + 1;

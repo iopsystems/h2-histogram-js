@@ -5,8 +5,8 @@ import { H2Encoding, H2Histogram, H2HistogramBuilder, decode32, encode32 } from 
 // todo: is relative error < or <= 2^-b?
 
 describe('H2Encoding', () => {
-  test('H2Encoding.with', () => {
-    const enc = H2Encoding.with({ minimumUnit: 1, relativeError: 0.01, maxValue: 1e6 });
+  test('H2Encoding.params', () => {
+    const enc = H2Encoding.params({ minimumUnit: 1, relativeError: 0.01, maxValue: 1e6 });
     expect(enc.a).toBe(0);
     expect(enc.b).toBe(7);
     expect(enc.n).toBe(20);
@@ -17,7 +17,7 @@ describe('H2Encoding', () => {
       fc.double({ min: 0.0001, max: 1, noNaN: true, }), // relative error
       fc.integer({ min: 1, max: enc.maxValue() }), // maximum value
       (minimumUnit, relativeError, maxValue) => {
-        const enc = H2Encoding.with({ minimumUnit, relativeError, maxValue });
+        const enc = H2Encoding.params({ minimumUnit, relativeError, maxValue });
         expect(enc.absoluteError()).toBeLessThanOrEqual(minimumUnit);
         expect(enc.relativeError()).toBeLessThanOrEqual(relativeError);
         expect(enc.maxValue()).toBeGreaterThanOrEqual(maxValue);
@@ -46,7 +46,7 @@ describe('H2Encoding', () => {
      */
     function propertyTest(enc) {
       fc.assert(fc.property(
-        fc.double({ min: 0, max: enc.maxValue(), noNaN: true, }),
+        fc.integer({ min: 0, max: enc.maxValue(), }),
         // @ts-ignore
         value => {
           const code = enc.encode(value);
@@ -56,8 +56,8 @@ describe('H2Encoding', () => {
             expect(lower <= value && value <= upper).toBe(true);
           }
           const lower = enc.lower(code);
-          const higher = enc.upper(code);
-          expect(lower <= value && value <= higher).toBe(true);
+          const upper = enc.upper(code);
+          expect(lower <= value && value <= upper).toBe(true);
         }
       ));
     }
@@ -114,7 +114,7 @@ describe('H2Encoding', () => {
 test('H2Histogram', () => {
   {
     // Basic tests with a 3-value histogram containing [1e5, 2e5, 3e5]
-    const enc = H2Encoding.with({ relativeError: 0.01, maxValue: 1e6 });
+    const enc = H2Encoding.params({ relativeError: 0.01, maxValue: 1e6 });
     const builder = new H2HistogramBuilder(enc);
     builder.incrementValue(1e5, 100);
     builder.incrementValue(2e5, 100);
@@ -171,7 +171,7 @@ test('H2Histogram', () => {
         // @ts-ignore
         fc.integer({ min: 1, max: 2 ** 53 - 1 }),
         (relativeError, maxValue) => {
-          const enc = H2Encoding.with({ relativeError, maxValue });
+          const enc = H2Encoding.params({ relativeError, maxValue });
           const cutoff = enc.relativeAbsoluteCutoff();
           const absoluteError = enc.absoluteError();
           fc.assert(
@@ -184,6 +184,10 @@ test('H2Histogram', () => {
               }),
               // @ts-ignore
               (values) => {
+                for (let i = 0; i < values.length; i++) {
+                  // round to integers before building the histogram
+                  values[i] = Math.round(values[i]);
+                }
                 values.sort();
                 const builder = new H2HistogramBuilder(enc);
                 for (const value of values) {
