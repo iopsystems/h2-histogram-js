@@ -36,6 +36,7 @@ describe('H2Encoding', () => {
     for (let i = 0; i < bins.length; i++) {
       const bin = bins[i];
       expect(enc.encode(i)).toBe(bin);
+      expect(encode32(i, enc.a, enc.b)).toBe(bin);
     }
     expect(() => enc.encode(bins.length + 1)).toThrow();
   });
