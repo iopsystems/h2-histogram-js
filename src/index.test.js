@@ -2,8 +2,6 @@ import * as fc from 'fast-check';
 import { describe, expect, it, test } from 'vitest';
 import { H2Encoding, H2Histogram, H2HistogramBuilder, decode32, encode32 } from './index.js';
 
-// todo: is relative error < or <= 2^-b?
-
 describe('H2Encoding', () => {
   test('H2Encoding.params', () => {
     const enc = H2Encoding.params({ minimumUnit: 1, relativeError: 0.01, maxValue: 1e6 });
