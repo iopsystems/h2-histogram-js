@@ -509,11 +509,10 @@ export function decode32(index, a, b) {
  */
 function assertValid32(x, a, b) {
   assertSafeInteger(x);
-  assert(x <= 2 ** 32 - 1);
   assertSafeInteger(a);
   assertSafeInteger(b);
-  const c = a + b + 1;
-  assert(c < 32);
+  assert(x <= 2 ** 32 - 1);
+  assert(a + b + 1 < 32);
 }
 
 /**
