@@ -171,7 +171,7 @@ export class H2Encoding {
    * @param {number} code
    */
   upper(code) {
-    DEBUG && assert(code <= this.maxCode);
+    DEBUG && assert(code <= this.maxCode, () => `code (${code}) cannot exceed maxCode (${this.maxCode})`);
     if (code === this.maxCode) {
       return this.maxValue();
     } else {
@@ -184,7 +184,7 @@ export class H2Encoding {
    * @param {number} code
    */
   binWidth(code) {
-    assert(0 <= code && code <= this.maxCode);
+    assert(0 <= code && code <= this.maxCode, `code (${code}) must be in [0, maxCode] ([0, ${this.maxCode}])`);
     return this.upper(code) - this.lower(code) + 1;
   }
 
@@ -296,7 +296,7 @@ export class H2Histogram {
    * @param {number[] | Float64Array} counts
    */
   constructor(encoding, bins, counts) {
-    assert(bins.length === counts.length);
+    assert(bins.length === counts.length, () => `bins.length (${bins.length}) must equal counts.length (${counts.length})`);
     // todo: assert no duplicates - or are duplicates fine (if inefficient)?
     // todo: could (should) we re-use the counts array?
     const cumulativeCounts = new Float64Array(counts);
@@ -354,7 +354,7 @@ export class H2Histogram {
    * @param {number} q - the quantile, in [0, 1]
    */
   quantile(q) {
-    DEBUG && assert(0 <= q && q <= 1);
+    DEBUG && assert(0 <= q && q <= 1, () => `expected quantile q to be in [0, 1], got ${q}`);
 
     if (this.numObservations === 0) {
       return 0;
@@ -388,7 +388,7 @@ export class H2Histogram {
    * @param {number} q
    */
   quantileToCount(q) {
-    DEBUG && assert(0.0 <= q && q <= 1.0);
+    DEBUG && assert(0.0 <= q && q <= 1.0, () => `expected quantile q to be in [0, 1], got ${q}`);
     if (q == 0.0) {
       return 1;
     }
@@ -412,7 +412,7 @@ export class H2Histogram {
  * @param {(index: number) => boolean} pred
  */
 function partitionPoint(n, pred) {
-  DEBUG && assert(n < 2 ** 32);
+  DEBUG && assert(n < 2 ** 32, () => `expected n to be < 2^32, got ${n}`);
   DEBUG && assertSafeInteger(n);
   let b = 0;
   let bit = bitFloor(n);
@@ -433,7 +433,7 @@ function partitionPoint(n, pred) {
  * @param {number} n
  */
 function bitFloor(n) {
-  DEBUG && assert(n < 2 ** 32);
+  DEBUG && assert(n < 2 ** 32, () => `expected n to be < 2^32, got ${n}`);
   if (n === 0) {
     return 0;
   }
@@ -448,7 +448,7 @@ function bitFloor(n) {
  * @param {number} x
  */
 function u32(x) {
-  DEBUG && assert(Number.isInteger(x));
+  DEBUG && assert(Number.isInteger(x), () => `expected integer x, got ${x}`);
   // Allow bit patterns representing negative numbers, eg. 1 << 31
   DEBUG && assert(Math.abs(x) < 2 ** 32, () => `expected x < 2^32, got ${x}`);
   return x >>> 0;
@@ -511,8 +511,8 @@ function assertValid32(x, a, b) {
   assertSafeInteger(x);
   assertSafeInteger(a);
   assertSafeInteger(b);
-  assert(x <= 2 ** 32 - 1);
-  assert(a + b + 1 < 32);
+  assert(x <= 2 ** 32 - 1, () => `expected x < 2^32, got ${x}`);
+  assert(a + b + 1 < 32, () => `expected a + b + 1 < 32, got ${a + b + 1}`);
 }
 
 /**
