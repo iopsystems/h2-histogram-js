@@ -1,7 +1,7 @@
 {
   "type": "module",
   "name": "h2-histogram",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "The H2Histogram provides a histogram that is conceptually similar to HdrHistogram, but noticeably faster due to the use of base-2 buckets and efficient bit operations.",
   "main": "index.js",
   "scripts": {
