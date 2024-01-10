@@ -1,24 +1,32 @@
 {
   "type": "module",
-  "name": "h2-histogram-js",
+  "name": "h2-histogram",
   "version": "1.0.0",
-  "description": "",
+  "description": "The H2Histogram provides a histogram that is conceptually similar to HdrHistogram, but noticeably faster due to the use of base-2 buckets and efficient bit operations.",
   "main": "index.js",
   "scripts": {
     "test": "vitest",
     "build": "esbuild src/index.js --bundle --format=esm --outfile=dist/h2-histogram.js"
   },
   "keywords": [],
-  "author": "",
+  "author": "Yuri Vishnevsky",
   "license": "ISC",
   "devDependencies": {
     "esbuild": "^0.19.4",
-    "fast-check": "^3.13.1",
+    "fast-check": "^3.15.0",
     "typescript": "^5.2.2",
     "vite": "^4.4.11",
     "vitest": "^0.34.6"
   },
   "dependencies": {
     "@types/node": "^20.8.2"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iopsystems/h2-histogram-js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/iopsystems/h2-histogram-js/issues"
+  },
+  "homepage": "https://github.com/iopsystems/h2-histogram-js"
 }
