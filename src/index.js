@@ -272,7 +272,7 @@ export class H2HistogramBuilder {
   }
 
   /**
-   * Import `counts` as reprseented in a dense Histogram
+   * Import `counts` as represented in a dense Histogram
    * @param {number[] | Float64Array} counts
    */
   loadDenseCounts(counts) {
@@ -284,7 +284,7 @@ export class H2HistogramBuilder {
   }
 
   /**
-   * Import `counts` as reprseented in a dense Histogram
+   * Import `counts` as represented in a sparse Histogram
    * @param {number[] | Uint32Array} bins
    * @param {number[] | Float64Array} counts
    */
