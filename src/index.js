@@ -4,12 +4,12 @@ export class H2Encoding {
   /**
    * H2Encoding encodes values from the integer range [0, 2^n) into base-2 logarithmic
    * bins with a controllable relative error bound.
-   * 
+   *
    * The number of bins must be less than 2^32, and the largest encodable value must
    * be less than 2^53.
-   * 
+   *
    * The histogram is designed to encode integer values only.
-   * 
+   *
    * @param {object} options
    * @param {number} options.a - The `a` parameter controls the width of bins on
    * the low end of the value range. Each bin is 2^a wide, so the absolute error on
@@ -54,13 +54,13 @@ export class H2Encoding {
   static params({ relativeError, minimumUnit = 1, maxValue = 2 ** 53 - 1 }) {
     assert(relativeError > 0 && relativeError <= 1, () => `expected relative error to be in (0, 1], got ${relativeError}`);
     // Since we use bit shifts to handle the parameters, we need `a` >= 0, so the minimum
-    // unit must be a positive number greater than 1. 
+    // unit must be a positive number greater than 1.
     // There's no conceptual issue with smaller numbers, but they are hard to support with bit math.
     assert(minimumUnit >= 1, () => `expected minimumUnit > 1, got ${minimumUnit}`);
     // Mandate that maxValue is an integer in order to avoid issues with floating-point
     // rounding, eg. Math.log2(1.0000000000000002 + 1) === 1
     assert(maxValue >= 1, () => `expected maxValue >= 1, got ${maxValue}`);
-    assertSafeInteger(maxValue); 
+    assertSafeInteger(maxValue);
     const a = Math.floor(Math.log2(minimumUnit));
     let b = -Math.floor(Math.log2(relativeError));
     // since `2^n` is the first unrepresentable value,
@@ -137,7 +137,7 @@ export class H2Encoding {
     const binsBelowCutoff = u32(1 << (c - a));
     if (code < binsBelowCutoff) {
       return u32(code << a);
-    } 
+    }
 
     // The number of bins in 0..code that are above the cutoff point
     const n = code - binsBelowCutoff;
@@ -202,7 +202,7 @@ export class H2Encoding {
     return 2 ** this.a;
   }
 
-  /** 
+  /**
    * Relative error on the high end of the histogram, above the cutoff
    */
   relativeError() {
@@ -269,6 +269,32 @@ export class H2HistogramBuilder {
    */
   incrementBin(bin, count = 1) {
     this.counts[bin] += count;
+  }
+
+  /**
+   * Import `counts` as reprseented in a dense Histogram
+   * @param {number[] | Float64Array} counts
+   */
+  loadDenseCounts(counts) {
+    for (let i = 0; i < counts.length; i++) {
+      const index = i;
+      const count = counts[i];
+      this.incrementBin(index, count);
+    }
+  }
+
+  /**
+   * Import `counts` as reprseented in a dense Histogram
+   * @param {number[] | Uint32Array} bins
+   * @param {number[] | Float64Array} counts
+   */
+  loadSparseCounts(bins, counts) {
+    assert(bins.length === counts.length, () => `bins.length (${bins.length}) must equal counts.length (${counts.length})`);
+    for (let i = 0; i < bins.length; i++) {
+      const index = bins[i];
+      const count = counts[i];
+      this.incrementBin(index, count);
+    }
   }
 
   build() {
@@ -399,15 +425,15 @@ export class H2Histogram {
 /**
  * Returns the largest index for which `pred` returns true, plus one.
  * If the predicate does not return true for any index, returns 0.
- * The predicate function `pred` is required to be monotonic, ie. 
+ * The predicate function `pred` is required to be monotonic, ie.
  * to return `true` for all inputs below some cutoff, and `false`
  * for all inputs above that cutoff.
- * 
+ *
  * This implementation is adapted from https://orlp.net/blog/bitwise-binary-search/
- * 
+ *
  * That post contains optimized versions of this function, but here I opted for the
  * clearest implementation, at a slight performance cost.
- * 
+ *
  * @param {number} n
  * @param {(index: number) => boolean} pred
  */
@@ -457,7 +483,7 @@ function u32(x) {
 /**
  * A miniature implementation of H2 histogram encoding for values <= 2^32-1.
  * Returns the bin index of the bin containing `value`.
- * 
+ *
  * @param {number} value
  * @param {number} a
  * @param {number} b
@@ -474,7 +500,7 @@ export function encode32(value, a, b) {
  * A miniature implementation of H2 histogram decoding for values <= 2^32-1.
  * Returns an object { lower, upper } representing the inclusive bounds
  * [lower, upper] for the `index`-th bin.
- * 
+ *
  * @param {number} index
  * @param {number} a
  * @param {number} b
@@ -502,7 +528,7 @@ export function decode32(index, a, b) {
 
 /**
  * Common assertions on the input arguments to encode32 and decode32.
- * 
+ *
  * @param {number} x - code or value
  * @param {number} a - histogram `a` parameter
  * @param {number} b - histogram `b` parameter
@@ -516,9 +542,9 @@ function assertValid32(x, a, b) {
 }
 
 /**
- * 
+ *
  * @param {boolean} condition
- * @param {string | (() => string) } [message] - error message as a string or zero-argument function, 
+ * @param {string | (() => string) } [message] - error message as a string or zero-argument function,
  * to allow deferring the evaluation of an expensive message until the time an error occurs.
  */
 function assert(condition, message) {
