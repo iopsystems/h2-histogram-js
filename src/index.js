@@ -284,7 +284,7 @@ export class H2HistogramBuilder {
   }
 
   /**
-   * Import `counts` as represented in a sparse Histogram
+   * Import `bins` and `counts` as represented in a sparse Histogram
    * @param {number[] | Uint32Array} bins
    * @param {number[] | Float64Array} counts
    */
