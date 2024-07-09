@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
-import { describe, expect, it, test } from 'vitest';
-import { H2Encoding, H2Histogram, H2HistogramBuilder, decode32, encode32 } from './index.js';
+import { describe, expect, test } from 'vitest';
+import { H2Encoding, H2HistogramBuilder, decode32, encode32 } from './index.js';
 
 describe('H2Encoding', () => {
   test('H2Encoding.params', () => {
@@ -21,7 +21,7 @@ describe('H2Encoding', () => {
         expect(enc.maxValue()).toBeGreaterThanOrEqual(maxValue);
       })
     );
-  }); 
+  });
 
   test('H2Encoding.encode', () => {
     let enc = new H2Encoding({ a: 1, b: 2, n: 6 });
@@ -104,7 +104,7 @@ describe('H2Encoding', () => {
 
   // c = a + b + 1 out of bounds (above 31)
   expect(() => new H2Encoding({ a: 20, b: 20, n: 53 })).toThrow();
-  
+
   // n out of bounds
   expect(() => new H2Encoding({ a: 0, b: 0, n: 54 })).toThrow();
 });
@@ -146,7 +146,7 @@ test('H2Histogram', () => {
     expect(hist.quantile(0.25)).toBeGreaterThan(1e5);
     expect(hist.quantile(0.75)).toBeGreaterThan(2e5);
     expect(hist.quantile(1)).toBeGreaterThan(3e5);
-  }
+  };
 
   {
     /**
@@ -210,5 +210,26 @@ test('H2Histogram', () => {
         }
       )
     );
+  }
+});
+
+test('loadCounts', () => {
+  {
+    const enc = new H2Encoding({ a: 0, b: 2, n: 6 });
+
+    const builder_dense = new H2HistogramBuilder(enc);
+    builder_dense.loadDenseCounts([0, 0, 2, 3, 0, 0, 6, 7, 8, 0, 0, 0, 12, 0, 14, 0]);
+    const histo_dense = builder_dense.build();
+
+    expect(histo_dense.numObservations).toBe(52);
+
+    const builder_sparse = new H2HistogramBuilder(enc);
+    builder_sparse.loadSparseCounts([2, 3, 6, 7, 8, 12, 14], [2, 3, 6, 7, 8, 12, 14]);
+    const histo_sparse = builder_sparse.build();
+
+    expect(histo_dense.numObservations).toEqual(histo_sparse.numObservations);
+    for (let v = 0; v < 63; v++) {
+      expect(histo_dense.cumulativeCount(v)).toEqual(histo_sparse.cumulativeCount(v));
+    }
   }
 });
