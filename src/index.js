@@ -906,8 +906,17 @@ export class Histogram {
     assert(histograms.length > 0, 'cannot sum an empty histogram collection');
     const first = histograms[0];
     for (const histogram of histograms) first._checkCompatible(histogram);
+    const length = first.config.totalBuckets;
+    for (const histogram of histograms) assert(histogram.buckets.length === length, 'invalid dense shape');
     const result = Histogram.withConfig(first.config);
-    for (const histogram of histograms) result.checkedAddAssign(histogram);
+    for (let i = 0; i < length; i++) result.buckets[i] = checkedCount(first.buckets[i]);
+    // Only this method owns result: on failure discard it instead of preflighting.
+    for (let source = 1; source < histograms.length; source++) {
+      const buckets = histograms[source].buckets;
+      for (let i = 0; i < length; i++) {
+        result.buckets[i] = checkedCount(result.buckets[i] + checkedCount(buckets[i]));
+      }
+    }
     return result;
   }
 

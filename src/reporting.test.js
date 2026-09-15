@@ -91,3 +91,22 @@ it('normalizes zero sparse counts when building cumulative snapshots', () => {
   expect(c.index).toEqual([1]); expect(c.count).toEqual([2]); expect(c.mean()).toBe(1);
   expect(new SparseHistogram(cfg, [0], [0]).toCumulative().percentile(1)).toBe(null);
 });
+
+it('sums directly into private output without reused-destination preflight passes', () => {
+  const a = make(), b = make();
+  const original = Histogram.prototype.checkedAddAssign;
+  Histogram.prototype.checkedAddAssign = () => { throw Error('reused-destination path'); };
+  try {
+    const result = Histogram.checkedSum([a, b, a]);
+    expect(result.totalCount()).toBe(15);
+    expect(a.totalCount()).toBe(5); expect(b.totalCount()).toBe(5);
+    result.reset(); expect(a.totalCount()).toBe(5);
+    const last = a.buckets.length - 1;
+    a.buckets[last] = Number.MAX_SAFE_INTEGER; b.buckets[last] = 1;
+    const savedA = [...a.buckets], savedB = [...b.buckets];
+    expect(() => Histogram.checkedSum([a, b])).toThrow(/safe integer/);
+    expect([...a.buckets]).toEqual(savedA); expect([...b.buckets]).toEqual(savedB);
+  } finally {
+    Histogram.prototype.checkedAddAssign = original;
+  }
+});

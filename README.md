@@ -142,6 +142,12 @@ Keep recording on `Histogram` and choose reporting work according to the phase:
 | Reused batch reports | `percentilesInto(requests, output)` on all three classes | Reuses the caller's ordinary array and existing pair slots; allocates returned `Bucket` objects. Preserves order and duplicates. No request sorting/copy is needed. Dense/sparse queries scan per request after one total scan; cumulative queries use binary search per request. |
 | Owned transforms | sparse/cumulative `merge(other)`, `downsample(groupingPower)`; cumulative `toSparse()` | Sorted column operations without dense reconstruction. Merge accepts either sparse or cumulative input and returns the receiver's representation. Downsampling requires lower grouping power and recomputes cumulative means using output bucket midpoints. |
 
+Owned `checkedSum` validates all configurations before allocating its result,
+then copies and validates the first source once. Each remaining source is checked
+and added in one pass over the private result; an error discards that result and
+leaves every source untouched. It does not use `checkedAddAssign`'s separate
+validation pass, which is necessary when preserving an existing destination.
+
 Percentiles are fractions in `[0, 1]`. Empty histograms return `null` from
 queries; `percentilesInto` also clears its output. Empty requests on a nonempty
 histogram produce an empty array. Invalid requests are checked before changing
