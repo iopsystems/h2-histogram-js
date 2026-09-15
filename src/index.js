@@ -617,6 +617,8 @@ export class Config {
     this.cutoffPower = groupingPower + 1;
     this.cutoffValue = 2 ** this.cutoffPower;
     this.max = this.encoding.maxValue();
+    Object.freeze(this.encoding);
+    Object.freeze(this);
   }
 
   /**
@@ -740,7 +742,7 @@ export class Bucket {
  * A dense h2 histogram with a counter for every bucket.
  *
  * This is the JS analogue of the crate's `Histogram`. Counts are stored in a
- * `Float64Array`, so per-bucket counts are exact up to 2^53.
+ * `Float64Array`, so per-bucket counts are exact up to Number.MAX_SAFE_INTEGER.
  */
 export class Histogram {
   /**
@@ -771,6 +773,7 @@ export class Histogram {
     const config = new Config(groupingPower, maxValuePower);
     assert(buckets.length === config.totalBuckets, () => `expected ${config.totalBuckets} buckets, got ${buckets.length}`);
     const h = Histogram.withConfig(config);
+    for (const count of buckets) checkedCount(count);
     h.buckets.set(buckets);
     return h;
   }
@@ -779,13 +782,15 @@ export class Histogram {
   totalCount() {
     let total = 0;
     for (let i = 0; i < this.buckets.length; i++) {
-      total += this.buckets[i];
+      total = checkedCount(total + checkedCount(this.buckets[i]));
     }
     return total;
   }
 
   /**
    * Add one observation of `value` (or `count` observations).
+   * Unchecked: count and the resulting bucket count must be non-negative safe
+   * integers (at most Number.MAX_SAFE_INTEGER). Reports also require a safe total.
    * @param {number} value
    * @param {number} [count]
    */
@@ -795,6 +800,8 @@ export class Histogram {
 
   /**
    * Add `count` observations of `value`. Alias for `increment`.
+   * Unchecked: count and the resulting bucket count must be non-negative safe
+   * integers (at most Number.MAX_SAFE_INTEGER). Reports also require a safe total.
    * @param {number} value
    * @param {number} [count]
    */
@@ -852,9 +859,75 @@ export class Histogram {
     assert(this.config.equals(other.config), () => `histograms have incompatible configurations`);
   }
 
+  /** Clear counters while retaining the backing Float64Array. */
+  reset() {
+    this.buckets.fill(0);
+    return this;
+  }
+
+  /** Copy into compatible existing storage; requires exclusive access.
+   * @param {Histogram} destination
+   */
+  snapshotInto(destination) {
+    this._checkCompatible(destination);
+    assert(this.buckets.length === this.config.totalBuckets && destination.buckets.length === this.config.totalBuckets, 'invalid dense shape');
+    for (const count of this.buckets) checkedCount(count);
+    destination.buckets.set(this.buckets);
+    return destination;
+  }
+
+  /** Copy then reset; neither operation is concurrent/atomic.
+   * @param {Histogram} destination
+   */
+  drainInto(destination) {
+    assert(destination !== this && !denseStorageOverlaps(destination.buckets, this.buckets), 'cannot drain into aliased storage');
+    this.snapshotInto(destination);
+    this.reset();
+    return destination;
+  }
+
+  /** Validate every bucket before changing any destination count.
+   * @param {Histogram} other
+   */
+  checkedAddAssign(other) {
+    this._checkCompatible(other);
+    assert(this.buckets.length === this.config.totalBuckets && other.buckets.length === this.config.totalBuckets, 'invalid dense shape');
+    for (let i = 0; i < this.buckets.length; i++) {
+      checkedCount(checkedCount(this.buckets[i]) + checkedCount(other.buckets[i]));
+    }
+    // Overlapping views with different offsets would invalidate the preflight.
+    assert(!denseStorageOverlaps(this.buckets, other.buckets) || this.buckets.byteOffset === other.buckets.byteOffset, 'overlapping dense storage');
+    for (let i = 0; i < this.buckets.length; i++) this.buckets[i] += other.buckets[i];
+    return this;
+  }
+
+  /** Owned sum: validates all configurations before constructing output.
+   * @param {Histogram[]} histograms
+   */
+  static checkedSum(histograms) {
+    assert(histograms.length > 0, 'cannot sum an empty histogram collection');
+    const first = histograms[0];
+    for (const histogram of histograms) first._checkCompatible(histogram);
+    const length = first.config.totalBuckets;
+    for (const histogram of histograms) assert(histogram.buckets.length === length, 'invalid dense shape');
+    const result = Histogram.withConfig(first.config);
+    for (let i = 0; i < length; i++) result.buckets[i] = checkedCount(first.buckets[i]);
+    // Only this method owns result: on failure discard it instead of preflighting.
+    for (let source = 1; source < histograms.length; source++) {
+      const buckets = histograms[source].buckets;
+      for (let i = 0; i < length; i++) {
+        result.buckets[i] = checkedCount(result.buckets[i] + checkedCount(buckets[i]));
+      }
+    }
+    return result;
+  }
+
   /**
    * Return a new histogram that is the element-wise sum of both. Both must
    * share the same configuration.
+   * Unchecked: input counts and every resulting bucket count must be non-negative
+   * safe integers (at most Number.MAX_SAFE_INTEGER). Reports require a safe total.
+   * Use checkedAddAssign or checkedSum for validated arithmetic.
    * @param {Histogram} other
    */
   merge(other) {
@@ -899,14 +972,32 @@ export class Histogram {
     return result;
   }
 
+  /** Write fresh pairs and Buckets into a reusable outer array; retained pairs stay unchanged.
+   * Empty histograms clear the output and return null.
+   * @param {number[]} percentiles
+   * @param {[number, Bucket][]} output
+   * @returns {[number, Bucket][] | null}
+   */
+  percentilesInto(percentiles, output) {
+    return queryInto(this, percentiles, output);
+  }
+
   /**
    * Return the bucket at a single `percentile` in [0, 1], or `null` if the
    * histogram is empty. `0.5` is the median (same convention as the crate).
    * @param {number} percentile
    */
   percentile(percentile) {
-    const result = this.percentiles([percentile]);
-    return result === null ? null : result[0][1];
+    checkPercentile(percentile);
+    const total = this.totalCount();
+    if (total === 0) return null;
+    const target = Math.max(1, Math.ceil(percentile * total));
+    let running = 0;
+    for (let i = 0; i < this.buckets.length; i++) {
+      running += this.buckets[i];
+      if (running >= target) return new Bucket(this.buckets[i], this.config.indexToLowerBound(i), this.config.indexToUpperBound(i));
+    }
+    return null;
   }
 
   /**
@@ -1001,8 +1092,14 @@ export class SparseHistogram {
    */
   constructor(config, index = [], count = []) {
     this.config = config;
-    this.index = index;
-    this.count = count;
+    validateParts(config, index, count, false);
+    const indices = [], counts = [];
+    for (let i = 0; i < index.length; i++) {
+      if (count[i] !== 0) { indices.push(index[i]); counts.push(count[i]); }
+    }
+    this.index = Object.freeze(indices);
+    this.count = Object.freeze(counts);
+    Object.defineProperties(this, { config: { writable: false }, index: { writable: false }, count: { writable: false } });
   }
 
   /**
@@ -1010,10 +1107,11 @@ export class SparseHistogram {
    * @param {Histogram} histogram
    */
   static fromHistogram(histogram) {
+    assert(histogram.buckets.length === histogram.config.totalBuckets, 'invalid dense shape');
     const index = [];
     const count = [];
     for (let i = 0; i < histogram.buckets.length; i++) {
-      const c = histogram.buckets[i];
+      const c = checkedCount(histogram.buckets[i]);
       if (c > 0) {
         index.push(i);
         count.push(c);
@@ -1040,6 +1138,18 @@ export class SparseHistogram {
     return new SparseHistogram(config, Array.from(index), Array.from(count));
   }
 
+  /** @param {SparseHistogram | CumulativeHistogram} other */
+  merge(other) {
+    const parts = mergeParts(this, other);
+    return new SparseHistogram(this.config, parts.index, parts.count);
+  }
+
+  /** @param {number} groupingPower */
+  downsample(groupingPower) {
+    const parts = downsampleParts(this, groupingPower);
+    return new SparseHistogram(parts.config, parts.index, parts.count);
+  }
+
   get length() {
     return this.index.length;
   }
@@ -1051,7 +1161,7 @@ export class SparseHistogram {
   totalCount() {
     let total = 0;
     for (const c of this.count) {
-      total += c;
+      total = checkedCount(total + c);
     }
     return total;
   }
@@ -1078,18 +1188,48 @@ export class SparseHistogram {
     return CumulativeHistogram.fromSparse(this);
   }
 
-  /**
-   * @param {number} percentile
+  /** Write fresh pairs and Buckets into a reusable outer array; retained pairs stay unchanged.
+   * Empty histograms clear the output and return null.
+   * @param {number[]} percentiles
+   * @param {[number, Bucket][]} output
+   * @returns {[number, Bucket][] | null}
    */
+  percentilesInto(percentiles, output) {
+    return queryInto(this, percentiles, output);
+  }
+
+  /** @param {number} percentile */
   percentile(percentile) {
-    return this.toDense().percentile(percentile);
+    checkPercentile(percentile);
+    const total = this.totalCount();
+    if (total === 0) return null;
+    const target = Math.max(1, Math.ceil(percentile * total));
+    let running = 0;
+    for (let k = 0; k < this.index.length; k++) {
+      running += this.count[k];
+      if (running >= target) return new Bucket(this.count[k], this.config.indexToLowerBound(this.index[k]), this.config.indexToUpperBound(this.index[k]));
+    }
+    return null;
   }
 
   /**
    * @param {number[]} percentiles
    */
   percentiles(percentiles) {
-    return this.toDense().percentiles(percentiles);
+    for (const p of percentiles) checkPercentile(p);
+    const total = this.totalCount();
+    if (total === 0) return null;
+    const sortedUnique = Array.from(new Set(percentiles)).sort((a, b) => a - b);
+    /** @type {Map<number, Bucket>} */
+    const results = new Map();
+    let position = 0, running = this.count[0];
+    for (const p of sortedUnique) {
+      const target = Math.max(1, Math.ceil(p * total));
+      while (running < target) running += this.count[++position];
+      const index = this.index[position];
+      results.set(p, new Bucket(this.count[position], this.config.indexToLowerBound(index), this.config.indexToUpperBound(index)));
+    }
+    return percentiles.map(p => /** @type {[number, Bucket]} */ ([p, /** @type {Bucket} */ (results.get(p))]));
   }
 }
 
@@ -1109,12 +1249,12 @@ export class CumulativeHistogram {
    */
   constructor(config, index, count, { validate = true } = {}) {
     this.config = config;
-    this.index = index;
-    this.count = count;
-    if (validate) {
-      this._validate();
-    }
+    // The legacy validate option remains accepted, but cannot bypass invariants.
+    validateParts(config, index, count, true);
+    this.index = Object.freeze(Array.from(index));
+    this.count = Object.freeze(Array.from(count));
     this._mean = this._computeMean();
+    Object.defineProperties(this, { config: { writable: false }, index: { writable: false }, count: { writable: false }, _mean: { writable: false } });
   }
 
   /**
@@ -1132,13 +1272,14 @@ export class CumulativeHistogram {
    * @param {Histogram} histogram
    */
   static fromHistogram(histogram) {
+    assert(histogram.buckets.length === histogram.config.totalBuckets, 'invalid dense shape');
     const index = [];
     const count = [];
     let running = 0;
     for (let i = 0; i < histogram.buckets.length; i++) {
-      const n = histogram.buckets[i];
+      const n = checkedCount(histogram.buckets[i]);
       if (n > 0) {
-        running += n;
+        running = checkedCount(running + n);
         index.push(i);
         count.push(running);
       }
@@ -1151,31 +1292,21 @@ export class CumulativeHistogram {
    * @param {SparseHistogram} sparse
    */
   static fromSparse(sparse) {
-    const index = Array.from(sparse.index);
+    const index = [];
     const count = [];
     let running = 0;
-    for (const n of sparse.count) {
-      running += n;
+    for (let i = 0; i < sparse.length; i++) {
+      const n = sparse.count[i];
+      if (n === 0) continue;
+      running = checkedCount(running + n);
+      index.push(sparse.index[i]);
       count.push(running);
     }
     return new CumulativeHistogram(sparse.config, index, count, { validate: false });
   }
 
   _validate() {
-    assert(this.index.length === this.count.length, () => `index and count must have the same length`);
-    const total = this.config.totalBuckets;
-    let prev = -1;
-    for (const i of this.index) {
-      assert(i >= 0 && i < total, () => `index ${i} out of range for config`);
-      assert(i > prev, () => `indices must be strictly ascending`);
-      prev = i;
-    }
-    let prevC = null;
-    for (const c of this.count) {
-      assert(c !== 0, () => `cumulative counts must be non-zero`);
-      assert(prevC === null || c >= prevC, () => `cumulative counts must be non-decreasing`);
-      prevC = c;
-    }
+    validateParts(this.config, this.index, this.count, true);
   }
 
   /**
@@ -1199,6 +1330,18 @@ export class CumulativeHistogram {
       weighted += ((start + end) / 2) * this._individualCount(i);
     }
     return weighted / total;
+  }
+
+  /** @param {SparseHistogram | CumulativeHistogram} other */
+  merge(other) {
+    const parts = mergeParts(this, other);
+    return cumulativeParts(this.config, parts.index, parts.count);
+  }
+
+  /** @param {number} groupingPower */
+  downsample(groupingPower) {
+    const parts = downsampleParts(this, groupingPower);
+    return cumulativeParts(parts.config, parts.index, parts.count);
   }
 
   get length() {
@@ -1227,14 +1370,28 @@ export class CumulativeHistogram {
     return Math.min(pos, this.count.length - 1);
   }
 
+  /** Write fresh pairs and Buckets into a reusable outer array; retained pairs stay unchanged.
+   * Empty histograms clear the output and return null.
+   * @param {number[]} percentiles
+   * @param {[number, Bucket][]} output
+   * @returns {[number, Bucket][] | null}
+   */
+  percentilesInto(percentiles, output) {
+    return queryInto(this, percentiles, output);
+  }
+
   /**
    * Return the Bucket at `percentile` in [0, 1] (individual count), or `null`
    * if the histogram is empty.
    * @param {number} percentile
    */
   percentile(percentile) {
-    const result = this.percentiles([percentile]);
-    return result === null ? null : result[0][1];
+    checkPercentile(percentile);
+    const total = this.totalCount();
+    if (total === 0) return null;
+    const pos = this._findQuantilePosition(Math.max(1, Math.ceil(percentile * total)));
+    const index = this.index[pos];
+    return new Bucket(this._individualCount(pos), this.config.indexToLowerBound(index), this.config.indexToUpperBound(index));
   }
 
   /**
@@ -1308,6 +1465,11 @@ export class CumulativeHistogram {
     }
   }
 
+  /** Convert prefix counts directly to independent sparse columns. */
+  toSparse() {
+    return new SparseHistogram(this.config, Array.from(this.index), this.count.map((_, i) => this._individualCount(i)));
+  }
+
   /** Reconstruct a dense Histogram. */
   toDense() {
     const h = Histogram.withConfig(this.config);
@@ -1321,7 +1483,7 @@ export class CumulativeHistogram {
 /**
  * Return the leftmost index at which `target` could be inserted into the sorted
  * array `arr` to keep it sorted, i.e. the first index `i` with `arr[i] >= target`.
- * @param {number[] | Float64Array} arr
+ * @param {readonly number[] | Float64Array} arr
  * @param {number} target
  */
 function bisectLeft(arr, target) {
@@ -1336,4 +1498,115 @@ function bisectLeft(arr, target) {
     }
   }
   return lo;
+}
+
+/** @param {Float64Array} a @param {Float64Array} b */
+function denseStorageOverlaps(a, b) {
+  return a.buffer === b.buffer && a.byteOffset < b.byteOffset + b.byteLength
+    && b.byteOffset < a.byteOffset + a.byteLength;
+}
+
+/** @param {number} count */
+function checkedCount(count) {
+  assert(Number.isSafeInteger(count) && count >= 0, 'count must be a non-negative safe integer');
+  return count;
+}
+
+/** @param {number} percentile */
+function checkPercentile(percentile) {
+  assert(Number.isFinite(percentile) && percentile >= 0 && percentile <= 1, 'percentiles must be in the range [0, 1]');
+}
+
+/** @param {Config} config @param {ArrayLike<number>} index @param {ArrayLike<number>} count @param {boolean} cumulative */
+function validateParts(config, index, count, cumulative) {
+  assert(index.length === count.length, 'index and count must have the same length');
+  let previousIndex = -1, previousCount = 0;
+  for (let k = 0; k < index.length; k++) {
+    assert(Number.isSafeInteger(index[k]) && index[k] > previousIndex && index[k] < config.totalBuckets, 'indices must be strictly ascending integers in range');
+    checkedCount(count[k]);
+    if (cumulative) assert(count[k] > 0 && count[k] >= previousCount, 'cumulative counts must be positive and non-decreasing');
+    previousIndex = index[k]; previousCount = count[k];
+  }
+}
+
+/** @param {Histogram | SparseHistogram | CumulativeHistogram} histogram @param {number[]} percentiles @param {[number, Bucket][]} output */
+function queryInto(histogram, percentiles, output) {
+  assert(percentiles !== /** @type {unknown} */ (output), 'requests and output must not alias');
+  for (const p of percentiles) checkPercentile(p);
+  if (percentiles.length === 0) { output.length = 0; return output; }
+  const total = histogram.totalCount();
+  if (total === 0) { output.length = 0; return null; }
+  for (let q = 0; q < percentiles.length; q++) {
+    const p = percentiles[q], target = Math.max(1, Math.ceil(p * total));
+    let index = 0, count = 0;
+    if (histogram instanceof CumulativeHistogram) {
+      const pos = histogram._findQuantilePosition(target);
+      index = histogram.index[pos]; count = histogram._individualCount(pos);
+    } else {
+      let running = 0;
+      const counts = histogram instanceof Histogram ? histogram.buckets : histogram.count;
+      for (let i = 0; i < counts.length; i++) {
+        running += counts[i];
+        if (running >= target) {
+          index = histogram instanceof Histogram ? i : histogram.index[i]; count = counts[i]; break;
+        }
+      }
+    }
+    const bucket = new Bucket(count, histogram.config.indexToLowerBound(index), histogram.config.indexToUpperBound(index));
+    output[q] = [p, bucket];
+  }
+  output.length = percentiles.length;
+  return output;
+}
+
+/** @param {SparseHistogram | CumulativeHistogram} histogram @param {number} position */
+function individualCount(histogram, position) {
+  return histogram instanceof CumulativeHistogram ? histogram._individualCount(position) : histogram.count[position];
+}
+
+/** @param {SparseHistogram | CumulativeHistogram} a @param {SparseHistogram | CumulativeHistogram} b */
+function mergeParts(a, b) {
+  assert(a.config.equals(b.config), 'histograms have incompatible configurations');
+  /** @type {number[]} */
+  const index = [];
+  /** @type {number[]} */
+  const count = [];
+  let i = 0, j = 0;
+  while (i < a.length || j < b.length) {
+    let idx, n;
+    if (j === b.length || (i < a.length && a.index[i] < b.index[j])) {
+      idx = a.index[i]; n = individualCount(a, i++);
+    } else if (i === a.length || b.index[j] < a.index[i]) {
+      idx = b.index[j]; n = individualCount(b, j++);
+    } else {
+      idx = a.index[i]; n = checkedCount(individualCount(a, i++) + individualCount(b, j++));
+    }
+    if (n > 0) { index.push(idx); count.push(n); }
+  }
+  return { index, count };
+}
+
+/** @param {SparseHistogram | CumulativeHistogram} histogram @param {number} groupingPower */
+function downsampleParts(histogram, groupingPower) {
+  assert(groupingPower < histogram.config.groupingPower, 'target grouping_power must be less than the current grouping_power');
+  const config = new Config(groupingPower, histogram.config.maxValuePower);
+  /** @type {number[]} */
+  const index = [];
+  /** @type {number[]} */
+  const count = [];
+  for (let i = 0; i < histogram.length; i++) {
+    const n = individualCount(histogram, i);
+    if (n === 0) continue;
+    const idx = config.valueToIndex(histogram.config.indexToLowerBound(histogram.index[i]));
+    if (index.length && index[index.length - 1] === idx) count[count.length - 1] = checkedCount(count[count.length - 1] + n);
+    else { index.push(idx); count.push(n); }
+  }
+  return { config, index, count };
+}
+
+/** @param {Config} config @param {number[]} index @param {number[]} count */
+function cumulativeParts(config, index, count) {
+  let running = 0;
+  for (let i = 0; i < count.length; i++) count[i] = running = checkedCount(running + count[i]);
+  return new CumulativeHistogram(config, index, count);
 }
