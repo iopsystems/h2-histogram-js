@@ -128,3 +128,55 @@ byte-for-byte identical buckets so histograms interoperate across them:
 - [**Go**](https://github.com/iopsystems/h2histogram-go)
 - [**JavaScript**](https://github.com/iopsystems/h2histogram-js) — this
   repository (values up to `2^53 - 1`)
+
+### Reporting and analytics phases (canonical API)
+
+Keep recording on `Histogram` and choose reporting work according to the phase:
+
+| Phase | API | Storage and cost |
+| --- | --- | --- |
+| Record/reset | `record`, `increment`, `reset()` | Recording checks one bucket; reset fills the existing `Float64Array`. No cached total/min/max is maintained. |
+| Reused dense reports | `snapshotInto(destination)`, `drainInto(destination)` | Validate compatible geometry and counts before copying; preserve destination storage. Drain then resets the source and rejects shared backing storage. Returns the destination. |
+| Aggregation | `checkedAddAssign(other)`, `Histogram.checkedSum(histograms)` | In-place addition checks every count before mutation. Sum checks every configuration first, rejects an empty collection, and returns private storage even for one input or repeated references. `merge` uses checked owned addition. |
+| Scalar reporting | `percentile(p)`, dense/cumulative `quantile(p)` | Direct scan of dense or sparse counts, or cumulative binary search; allocates only the returned `Bucket`. No batch containers or dense reconstruction. |
+| Reused batch reports | `percentilesInto(requests, output)` on all three classes | Reuses the caller's ordinary array and existing pair slots; allocates returned `Bucket` objects. Preserves order and duplicates. No request sorting/copy is needed. Dense/sparse queries scan per request after one total scan; cumulative queries use binary search per request. |
+| Owned transforms | sparse/cumulative `merge(other)`, `downsample(groupingPower)`; cumulative `toSparse()` | Sorted column operations without dense reconstruction. Merge accepts either sparse or cumulative input and returns the receiver's representation. Downsampling requires lower grouping power and recomputes cumulative means using output bucket midpoints. |
+
+Percentiles are fractions in `[0, 1]`. Empty histograms return `null` from
+queries; `percentilesInto` also clears its output. Empty requests on a nonempty
+histogram produce an empty array. Invalid requests are checked before changing
+output. Request and output arrays must be distinct. The allocating `percentiles`
+API retains its original result shape; dense `percentiles` uses a sorted scan,
+which may suit large batches better than repeated buffer queries.
+
+Counts must be non-negative safe integers, at most `Number.MAX_SAFE_INTEGER`
+(`2^53 - 1`), not Rust's `u64` limit. Each recorded bucket stays exact, but an
+aggregate total may exceed this limit across buckets: `totalCount`, percentile
+reports, and cumulative construction reject that case. Recording does not scan
+all buckets to enforce a running total. Imports validate indices and counts;
+sparse zero counts are accepted and omitted by sparse-to-cumulative conversion.
+Cumulative inputs accept equal adjacent prefix counts (zero individual counts),
+but prefix values must be positive safe integers. Means and percentile fraction
+arithmetic remain floating-point estimates.
+
+Sparse and cumulative constructors copy and freeze their column arrays; their
+public `index`, `count`, and `config` references cannot be reassigned. Configs
+are immutable. Cumulative means therefore cannot become stale through snapshot
+accessors. The accepted legacy `{ validate: false }` constructor option no longer
+bypasses validation. Dense `buckets` remains a mutable escape hatch: callers must
+preserve its shape and safe-integer counts. No snapshot/drain operation is atomic
+or thread-safe; callers must provide exclusive access, including when sharing
+buffers with workers. These APIs introduce no concurrent recorder.
+
+JavaScript arrays expose no portable capacity or shrink-to-fit contract, so no
+compaction API is provided. Snapshot column copying/freezing and returned objects
+still allocate. Ordinary loops allow runtime JIT optimization, with no forced
+SIMD, WASM, BigInt counter family, or new runtime dependency. The legacy
+`H2Encoding`, `H2HistogramBuilder`, and `H2Histogram` surface remains available.
+
+Run `node benchmarks/reporting.js 2000` for separate recording, reuse, queries,
+snapshots, aggregation, and native-transform timings. Inputs are prepared before
+timing, operations warm up first, output describes included ownership costs,
+and ordinary garbage collection may be included. These measurements are local
+runtime evidence; they do not establish Rust-equivalent speedups or portable
+allocation-byte guarantees.

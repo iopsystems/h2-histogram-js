@@ -1,0 +1,93 @@
+import { describe, it, expect } from 'vitest';
+import { Config, Histogram, SparseHistogram, CumulativeHistogram } from './index.js';
+const make = () => { const h = new Histogram(2, 8); h.record(0, 2); h.record(17, 3); return h; };
+describe('reporting and analytics contracts', () => {
+  it('reuses dense storage for reset, snapshot and drain with independent copies', () => {
+    const h = make(), dst = make(), storage = dst.buckets, original = h.buckets;
+    expect(h.snapshotInto(dst)).toBe(dst); expect(dst.equals(h)).toBe(true);
+    h.reset(); expect(h.buckets).toBe(original); expect(h.totalCount()).toBe(0); expect(dst.totalCount()).toBe(5);
+    expect(dst.drainInto(h)).toBe(h); expect(dst.buckets).toBe(storage); expect(dst.totalCount()).toBe(0); expect(h.totalCount()).toBe(5);
+    expect(() => h.drainInto(h)).toThrow(); expect(h.totalCount()).toBe(5);
+    expect(() => h.snapshotInto(new Histogram(1, 8))).toThrow();
+  });
+  it('checks complete addition before mutation and validates sum geometry first', () => {
+    const dst = make(), before = dst.merge(new Histogram(2, 8)), other = make();
+    other.buckets[other.buckets.length - 1] = Number.MAX_SAFE_INTEGER;
+    dst.buckets[dst.buckets.length - 1] = 1; const saved = Array.from(dst.buckets);
+    expect(() => dst.checkedAddAssign(other)).toThrow(); expect(Array.from(dst.buckets)).toEqual(saved);
+    expect(() => Histogram.checkedSum([])).toThrow();
+    expect(() => Histogram.checkedSum([other, other, new Histogram(1, 8)])).toThrow(/config/);
+    const sum = Histogram.checkedSum([before, before]); expect(sum.totalCount()).toBe(10); expect(before.totalCount()).toBe(5);
+    const copy = Histogram.checkedSum([before]); copy.reset(); expect(before.totalCount()).toBe(5);
+    before.checkedAddAssign(before); expect(before.totalCount()).toBe(10);
+  });
+  it('queries scalars directly and reuses ordered batch outputs without dense reconstruction', () => {
+    for (const h of [make(), make().toSparse(), make().toCumulative()]) {
+      const expected = [1, 0, .5, .5].map(p => [p, h.percentile(p)]);
+      if ('toDense' in h) h.toDense = () => { throw Error('dense reconstruction'); };
+      h.percentiles = () => { throw Error('batch delegation'); };
+      expect(h.percentile(.5)).toEqual(expected[2][1]);
+      const out = /** @type {[number, import('./index.js').Bucket][]} */ ([]);
+      expect(h.percentilesInto([1, 0, .5, .5], out)).toBe(out); expect(out).toEqual(expected);
+      expect(h.percentilesInto([], out)).toBe(out); expect(out).toEqual([]);
+    }
+    const empty = new Histogram(2, 8), out = /** @type {[number, import('./index.js').Bucket][]} */ ([]);
+    expect(empty.percentilesInto([], out)).toBe(null); expect(out).toEqual([]);
+  });
+  it('merges and downsamples sparse and cumulative snapshots natively with new means', () => {
+    for (const h of [make().toSparse(), make().toCumulative()]) {
+      if ('toDense' in h) h.toDense = () => { throw Error('dense reconstruction'); };
+      expect(h.merge(h).toDense().equals(make().merge(make()))).toBe(true);
+      const coarse = h.downsample(1); expect(coarse.toDense().equals(make().downsample(1))).toBe(true);
+      if (coarse instanceof CumulativeHistogram) {
+        expect(coarse.mean()).toBe(make().downsample(1).toCumulative().mean());
+        expect(coarse.toSparse().toDense().equals(coarse.toDense())).toBe(true);
+      }
+    }
+  });
+  it('validates imported indices, counts and exact cumulative bounds', () => {
+    const cfg = new Config(2, 8);
+    for (const C of [SparseHistogram, CumulativeHistogram]) {
+      for (const count of [-1, .5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) expect(() => new C(cfg, [0], [count])).toThrow();
+      expect(() => new C(cfg, [.5], [1])).toThrow(); expect(() => new C(cfg, [0, 0], [1, 2])).toThrow();
+    }
+    const h = new Histogram(2, 8);
+    for (const count of [-1, .5, Number.MAX_SAFE_INTEGER + 1]) { expect(() => h.record(1, count)).toThrow(); const a = [...h.buckets]; a[0] = count; expect(() => Histogram.fromBuckets(2, 8, a)).toThrow(); }
+    h.record(0, Number.MAX_SAFE_INTEGER); expect(h.totalCount()).toBe(Number.MAX_SAFE_INTEGER);
+    expect(() => h.record(0)).toThrow(); h.record(1); expect(() => h.totalCount()).toThrow(); expect(() => h.toCumulative()).toThrow();
+  });
+  it('owns immutable snapshot arrays so means cannot become stale', () => {
+    const cfg = new Config(2, 8), index = [0], count = [2];
+    const c = new CumulativeHistogram(cfg, index, count); index[0] = 1; count[0] = 8;
+    expect(c.mean()).toBe(0); expect(c.totalCount()).toBe(2);
+    expect(Reflect.set(c.index, '0', 1)).toBe(false);
+    expect(Reflect.set(c.count, '0', 9)).toBe(false);
+    expect(c.mean()).toBe(0); expect(c.totalCount()).toBe(2);
+  });
+});
+
+it('validates mutable dense escape hatch on reporting and preserves output on invalid requests', () => {
+  const h = make(); h.buckets[3] = -1;
+  expect(() => h.toSparse()).toThrow(); expect(() => h.toCumulative()).toThrow();
+  const out = /** @type {[number, import('./index.js').Bucket][]} */ ([[0, make().percentile(0)]]);
+  const saved = [...out]; expect(() => make().percentilesInto([0, NaN], out)).toThrow(); expect(out).toEqual(saved);
+});
+
+it('handles zero entries, transform overflow and snapshot property reassignment', () => {
+  const cfg = new Config(2, 8), max = Number.MAX_SAFE_INTEGER;
+  const sparse = new SparseHistogram(cfg, [0, 1, 2], [0, 2, 0]);
+  expect(sparse.percentile(0)?.count).toBe(2); expect(sparse.merge(sparse).count).toEqual([4]);
+  const large = new SparseHistogram(cfg, [8, 9], [max, 1]);
+  expect(() => large.downsample(1)).toThrow(); expect(() => large.toCumulative()).toThrow();
+  expect(() => new SparseHistogram(cfg, [0], [max]).merge(new SparseHistogram(cfg, [0], [1]))).toThrow();
+  const c = make().toCumulative();
+  for (const key of ['index', 'count', 'config', '_mean']) expect(() => Reflect.set(c, key, [])).not.toThrow();
+  expect(c.totalCount()).toBe(5); expect(c.mean()).toBe(10.5);
+});
+
+it('normalizes zero sparse counts when building cumulative snapshots', () => {
+  const cfg = new Config(2, 8);
+  const c = new SparseHistogram(cfg, [0, 1, 2], [0, 2, 0]).toCumulative();
+  expect(c.index).toEqual([1]); expect(c.count).toEqual([2]); expect(c.mean()).toBe(1);
+  expect(new SparseHistogram(cfg, [0], [0]).toCumulative().percentile(1)).toBe(null);
+});
