@@ -135,9 +135,9 @@ Keep recording on `Histogram` and choose reporting work according to the phase:
 
 | Phase | API | Storage and cost |
 | --- | --- | --- |
-| Record/reset | `record`, `increment`, `reset()` | Recording checks one bucket; reset fills the existing `Float64Array`. No cached total/min/max is maintained. |
+| Record/reset | `record`, `increment`, `reset()` | Recording updates one bucket without count validation; reset fills the existing `Float64Array`. No cached total/min/max is maintained. |
 | Reused dense reports | `snapshotInto(destination)`, `drainInto(destination)` | Validate compatible geometry and counts before copying; preserve destination storage. Drain then resets the source and rejects shared backing storage. Returns the destination. |
-| Aggregation | `checkedAddAssign(other)`, `Histogram.checkedSum(histograms)` | In-place addition checks every count before mutation. Sum checks every configuration first, rejects an empty collection, and returns private storage even for one input or repeated references. `merge` uses checked owned addition. |
+| Aggregation | `checkedAddAssign(other)`, `Histogram.checkedSum(histograms)` | In-place addition checks every count before mutation. Sum checks every configuration first, rejects an empty collection, and returns private storage even for one input or repeated references. `merge` retains its original unchecked arithmetic. |
 | Scalar reporting | `percentile(p)`, dense/cumulative `quantile(p)` | Direct scan of dense or sparse counts, or cumulative binary search; allocates only the returned `Bucket`. No batch containers or dense reconstruction. |
 | Reused batch reports | `percentilesInto(requests, output)` on all three classes | Reuses the caller's ordinary array and existing pair slots; allocates returned `Bucket` objects. Preserves order and duplicates. No request sorting/copy is needed. Dense/sparse queries scan per request after one total scan; cumulative queries use binary search per request. |
 | Owned transforms | sparse/cumulative `merge(other)`, `downsample(groupingPower)`; cumulative `toSparse()` | Sorted column operations without dense reconstruction. Merge accepts either sparse or cumulative input and returns the receiver's representation. Downsampling requires lower grouping power and recomputes cumulative means using output bucket midpoints. |
@@ -149,18 +149,18 @@ leaves every source untouched. It does not use `checkedAddAssign`'s separate
 validation pass, which is necessary when preserving an existing destination.
 
 Percentiles are fractions in `[0, 1]`. Empty histograms return `null` from
-queries; `percentilesInto` also clears its output. Empty requests on a nonempty
-histogram produce an empty array. Invalid requests are checked before changing
+queries; `percentilesInto` also clears its output. Empty requests always produce an empty array without scanning totals. Invalid requests are checked before changing
 output. Request and output arrays must be distinct. The allocating `percentiles`
-API retains its original result shape; dense `percentiles` uses a sorted scan,
+API retains its original result shape; dense and sparse `percentiles` use a sorted scan,
 which may suit large batches better than repeated buffer queries.
 
 Counts must be non-negative safe integers, at most `Number.MAX_SAFE_INTEGER`
-(`2^53 - 1`), not Rust's `u64` limit. Each recorded bucket stays exact, but an
-aggregate total may exceed this limit across buckets: `totalCount`, percentile
-reports, and cumulative construction reject that case. Recording does not scan
-all buckets to enforce a running total. Imports validate indices and counts;
-sparse zero counts are accepted and omitted by sparse-to-cumulative conversion.
+(`2^53 - 1`), not Rust's `u64` limit. Callers of the unchecked recording and legacy `merge` paths must preserve these
+limits themselves. An aggregate total may exceed this limit across buckets: `totalCount`, percentile
+reports, and cumulative construction reject that case. Recording performs its original counter update with no extra count checks or
+scans. Imports, checked aggregation, lifecycle copies, and reports validate counts
+at their boundaries. Imports validate indices and counts;
+sparse zero counts are accepted and removed only after validation.
 Cumulative inputs accept equal adjacent prefix counts (zero individual counts),
 but prefix values must be positive safe integers. Means and percentile fraction
 arithmetic remain floating-point estimates.
@@ -186,3 +186,7 @@ timing, operations warm up first, output describes included ownership costs,
 and ordinary garbage collection may be included. These measurements are local
 runtime evidence; they do not establish Rust-equivalent speedups or portable
 allocation-byte guarantees.
+
+Development validation for this change used dependency versions resolved from the
+existing manifest's semver ranges. The installed pnpm version could not read the
+older repository lockfile; the unrelated lockfile was left unchanged.

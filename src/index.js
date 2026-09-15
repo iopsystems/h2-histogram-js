@@ -793,9 +793,7 @@ export class Histogram {
    * @param {number} [count]
    */
   increment(value, count = 1) {
-    checkedCount(count);
-    const index = this.config.valueToIndex(value);
-    this.buckets[index] = checkedCount(checkedCount(this.buckets[index]) + count);
+    this.buckets[this.config.valueToIndex(value)] += count;
   }
 
   /**
@@ -926,7 +924,12 @@ export class Histogram {
    * @param {Histogram} other
    */
   merge(other) {
-    return Histogram.checkedSum([this, other]);
+    this._checkCompatible(other);
+    const result = Histogram.withConfig(this.config);
+    for (let i = 0; i < this.buckets.length; i++) {
+      result.buckets[i] = this.buckets[i] + other.buckets[i];
+    }
+    return result;
   }
 
   /**
@@ -1082,8 +1085,12 @@ export class SparseHistogram {
   constructor(config, index = [], count = []) {
     this.config = config;
     validateParts(config, index, count, false);
-    this.index = Object.freeze(Array.from(index));
-    this.count = Object.freeze(Array.from(count));
+    const indices = [], counts = [];
+    for (let i = 0; i < index.length; i++) {
+      if (count[i] !== 0) { indices.push(index[i]); counts.push(count[i]); }
+    }
+    this.index = Object.freeze(indices);
+    this.count = Object.freeze(counts);
     Object.defineProperties(this, { config: { writable: false }, index: { writable: false }, count: { writable: false } });
   }
 
@@ -1092,6 +1099,7 @@ export class SparseHistogram {
    * @param {Histogram} histogram
    */
   static fromHistogram(histogram) {
+    assert(histogram.buckets.length === histogram.config.totalBuckets, 'invalid dense shape');
     const index = [];
     const count = [];
     for (let i = 0; i < histogram.buckets.length; i++) {
@@ -1199,7 +1207,20 @@ export class SparseHistogram {
    * @param {number[]} percentiles
    */
   percentiles(percentiles) {
-    return this.percentilesInto(percentiles, []);
+    for (const p of percentiles) checkPercentile(p);
+    const total = this.totalCount();
+    if (total === 0) return null;
+    const sortedUnique = Array.from(new Set(percentiles)).sort((a, b) => a - b);
+    /** @type {Map<number, Bucket>} */
+    const results = new Map();
+    let position = 0, running = this.count[0];
+    for (const p of sortedUnique) {
+      const target = Math.max(1, Math.ceil(p * total));
+      while (running < target) running += this.count[++position];
+      const index = this.index[position];
+      results.set(p, new Bucket(this.count[position], this.config.indexToLowerBound(index), this.config.indexToUpperBound(index)));
+    }
+    return percentiles.map(p => /** @type {[number, Bucket]} */ ([p, /** @type {Bucket} */ (results.get(p))]));
   }
 }
 
@@ -1242,6 +1263,7 @@ export class CumulativeHistogram {
    * @param {Histogram} histogram
    */
   static fromHistogram(histogram) {
+    assert(histogram.buckets.length === histogram.config.totalBuckets, 'invalid dense shape');
     const index = [];
     const count = [];
     let running = 0;
@@ -1495,6 +1517,7 @@ function validateParts(config, index, count, cumulative) {
 function queryInto(histogram, percentiles, output) {
   assert(percentiles !== /** @type {unknown} */ (output), 'requests and output must not alias');
   for (const p of percentiles) checkPercentile(p);
+  if (percentiles.length === 0) { output.length = 0; return output; }
   const total = histogram.totalCount();
   if (total === 0) { output.length = 0; return null; }
   for (let q = 0; q < percentiles.length; q++) {

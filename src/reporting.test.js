@@ -32,7 +32,7 @@ describe('reporting and analytics contracts', () => {
       expect(h.percentilesInto([], out)).toBe(out); expect(out).toEqual([]);
     }
     const empty = new Histogram(2, 8), out = /** @type {[number, import('./index.js').Bucket][]} */ ([]);
-    expect(empty.percentilesInto([], out)).toBe(null); expect(out).toEqual([]);
+    expect(empty.percentilesInto([], out)).toBe(out); expect(out).toEqual([]);
   });
   it('merges and downsamples sparse and cumulative snapshots natively with new means', () => {
     for (const h of [make().toSparse(), make().toCumulative()]) {
@@ -52,9 +52,9 @@ describe('reporting and analytics contracts', () => {
       expect(() => new C(cfg, [.5], [1])).toThrow(); expect(() => new C(cfg, [0, 0], [1, 2])).toThrow();
     }
     const h = new Histogram(2, 8);
-    for (const count of [-1, .5, Number.MAX_SAFE_INTEGER + 1]) { expect(() => h.record(1, count)).toThrow(); const a = [...h.buckets]; a[0] = count; expect(() => Histogram.fromBuckets(2, 8, a)).toThrow(); }
+    for (const count of [-1, .5, Number.MAX_SAFE_INTEGER + 1]) { const a = [...h.buckets]; a[0] = count; expect(() => Histogram.fromBuckets(2, 8, a)).toThrow(); }
     h.record(0, Number.MAX_SAFE_INTEGER); expect(h.totalCount()).toBe(Number.MAX_SAFE_INTEGER);
-    expect(() => h.record(0)).toThrow(); h.record(1); expect(() => h.totalCount()).toThrow(); expect(() => h.toCumulative()).toThrow();
+    h.record(1); expect(() => h.totalCount()).toThrow(); expect(() => h.toCumulative()).toThrow();
   });
   it('owns immutable snapshot arrays so means cannot become stale', () => {
     const cfg = new Config(2, 8), index = [0], count = [2];
@@ -109,4 +109,40 @@ it('sums directly into private output without reused-destination preflight passe
   } finally {
     Histogram.prototype.checkedAddAssign = original;
   }
+});
+
+
+it('preserves the unchecked recording and legacy merge arithmetic paths', () => {
+  const h = new Histogram(2, 8); h.record(0, Number.MAX_SAFE_INTEGER); h.record(0);
+  expect(h.buckets[0]).toBe(2 ** 53); expect(() => h.toSparse()).toThrow();
+  const a = new Histogram(2, 8); a.record(0, Number.MAX_SAFE_INTEGER);
+  const b = new Histogram(2, 8); b.record(0);
+  expect(a.merge(b).buckets[0]).toBe(2 ** 53); expect(() => Histogram.checkedSum([a, b])).toThrow();
+});
+
+it('normalizes validated sparse zero entries and rejects malformed dense snapshot shapes', () => {
+  const cfg = new Config(2, 8);
+  expect(new SparseHistogram(cfg, [0, 1], [0, 0]).isEmpty()).toBe(true);
+  expect(() => new SparseHistogram(cfg, [0, 0], [0, 0])).toThrow();
+  for (const length of [cfg.totalBuckets - 1, cfg.totalBuckets + 1]) {
+    const h = make(); h.buckets = new Float64Array(length);
+    expect(() => h.toSparse()).toThrow(); expect(() => h.toCumulative()).toThrow();
+  }
+});
+
+it('returns an empty output without scanning totals for empty requests', () => {
+  for (const h of [make(), make().toSparse(), make().toCumulative()]) {
+    h.totalCount = () => { throw Error('total scan'); };
+    const output = /** @type {[number, import('./index.js').Bucket][]} */ ([]);
+    expect(h.percentilesInto([], output)).toBe(output);
+  }
+});
+
+it('answers allocating sparse batches without repeated scalar or output-buffer scans', () => {
+  const sparse = make().toSparse();
+  sparse.percentilesInto = () => { throw Error('per-request batch'); };
+  sparse.percentile = () => { throw Error('scalar'); };
+  expect(sparse.percentiles([1, 0, .5, .5])?.map(([p, bucket]) => [p, bucket.count, bucket.start])).toEqual([
+    [1, 3, 16], [0, 2, 0], [.5, 3, 16], [.5, 3, 16],
+  ]);
 });
