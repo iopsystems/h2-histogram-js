@@ -146,3 +146,50 @@ it('answers allocating sparse batches without repeated scalar or output-buffer s
     [1, 3, 16], [0, 2, 0], [.5, 3, 16], [.5, 3, 16],
   ]);
 });
+
+it('adds and drains disjoint views of the same buffer in either order', () => {
+  for (const reverse of [false, true]) {
+    const source = make(), destination = make(), n = source.buckets.length;
+    const slab = new Float64Array(2 * n);
+    const first = slab.subarray(0, n), second = slab.subarray(n);
+    first.set(source.buckets); second.set(destination.buckets);
+    source.buckets = reverse ? second : first;
+    destination.buckets = reverse ? first : second;
+    expect(destination.checkedAddAssign(source)).toBe(destination);
+    expect(destination.totalCount()).toBe(10); expect(source.totalCount()).toBe(5);
+    expect(source.drainInto(destination)).toBe(destination);
+    expect(source.totalCount()).toBe(0); expect(destination.totalCount()).toBe(5);
+  }
+});
+
+it('rejects partial overlap without writes and allows exact-alias addition', () => {
+  for (const reverse of [false, true]) {
+    const a = make(), b = make(), n = a.buckets.length;
+    const slab = new Float64Array(n + 1).fill(1);
+    a.buckets = slab.subarray(reverse ? 1 : 0, reverse ? n + 1 : n);
+    b.buckets = slab.subarray(reverse ? 0 : 1, reverse ? n : n + 1);
+    const saved = [...slab];
+    expect(() => a.checkedAddAssign(b)).toThrow(/overlapping/);
+    expect([...slab]).toEqual(saved);
+    expect(() => a.drainInto(b)).toThrow(/aliased/);
+    expect([...slab]).toEqual(saved);
+    b.buckets = new Float64Array(slab.buffer, a.buckets.byteOffset, n);
+    expect(a.checkedAddAssign(b)).toBe(a); expect([...a.buckets]).toEqual(Array(n).fill(2));
+    expect(() => a.drainInto(b)).toThrow(/aliased/);
+  }
+});
+
+it('replaces shared or frozen output tuples and preserves retained reports', () => {
+  for (const h of [make(), make().toSparse(), make().toCumulative()]) {
+    const pair = /** @type {[number, import('./index.js').Bucket]} */ ([.5, /** @type {import('./index.js').Bucket} */ (h.percentile(.5))]);
+    const out = [pair, pair];
+    expect(h.percentilesInto([0, 1], out)).toBe(out);
+    expect(out.map(([p]) => p)).toEqual([0, 1]); expect(out[0]).not.toBe(out[1]);
+    expect(pair[0]).toBe(.5);
+    const retained = out[0], bucket = retained[1];
+    Object.freeze(out[1]);
+    expect(h.percentilesInto([1, 0], out)).toBe(out);
+    expect(out.map(([p]) => p)).toEqual([1, 0]);
+    expect(retained).toEqual([0, bucket]); expect(out[0]).not.toBe(retained);
+  }
+});

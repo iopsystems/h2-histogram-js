@@ -789,6 +789,8 @@ export class Histogram {
 
   /**
    * Add one observation of `value` (or `count` observations).
+   * Unchecked: count and the resulting bucket count must be non-negative safe
+   * integers (at most Number.MAX_SAFE_INTEGER). Reports also require a safe total.
    * @param {number} value
    * @param {number} [count]
    */
@@ -798,6 +800,8 @@ export class Histogram {
 
   /**
    * Add `count` observations of `value`. Alias for `increment`.
+   * Unchecked: count and the resulting bucket count must be non-negative safe
+   * integers (at most Number.MAX_SAFE_INTEGER). Reports also require a safe total.
    * @param {number} value
    * @param {number} [count]
    */
@@ -876,7 +880,7 @@ export class Histogram {
    * @param {Histogram} destination
    */
   drainInto(destination) {
-    assert(destination !== this && destination.buckets.buffer !== this.buckets.buffer, 'cannot drain into aliased storage');
+    assert(destination !== this && !denseStorageOverlaps(destination.buckets, this.buckets), 'cannot drain into aliased storage');
     this.snapshotInto(destination);
     this.reset();
     return destination;
@@ -892,7 +896,7 @@ export class Histogram {
       checkedCount(checkedCount(this.buckets[i]) + checkedCount(other.buckets[i]));
     }
     // Overlapping views with different offsets would invalidate the preflight.
-    assert(this.buckets.buffer !== other.buckets.buffer || this.buckets.byteOffset === other.buckets.byteOffset, 'overlapping dense storage');
+    assert(!denseStorageOverlaps(this.buckets, other.buckets) || this.buckets.byteOffset === other.buckets.byteOffset, 'overlapping dense storage');
     for (let i = 0; i < this.buckets.length; i++) this.buckets[i] += other.buckets[i];
     return this;
   }
@@ -921,6 +925,9 @@ export class Histogram {
   /**
    * Return a new histogram that is the element-wise sum of both. Both must
    * share the same configuration.
+   * Unchecked: input counts and every resulting bucket count must be non-negative
+   * safe integers (at most Number.MAX_SAFE_INTEGER). Reports require a safe total.
+   * Use checkedAddAssign or checkedSum for validated arithmetic.
    * @param {Histogram} other
    */
   merge(other) {
@@ -965,7 +972,8 @@ export class Histogram {
     return result;
   }
 
-  /** Write ordered pairs into a reusable array; empty histograms clear it and return null.
+  /** Write fresh pairs and Buckets into a reusable outer array; retained pairs stay unchanged.
+   * Empty histograms clear the output and return null.
    * @param {number[]} percentiles
    * @param {[number, Bucket][]} output
    * @returns {[number, Bucket][] | null}
@@ -1180,7 +1188,8 @@ export class SparseHistogram {
     return CumulativeHistogram.fromSparse(this);
   }
 
-  /** Write ordered pairs into a reusable array; empty histograms clear it and return null.
+  /** Write fresh pairs and Buckets into a reusable outer array; retained pairs stay unchanged.
+   * Empty histograms clear the output and return null.
    * @param {number[]} percentiles
    * @param {[number, Bucket][]} output
    * @returns {[number, Bucket][] | null}
@@ -1361,7 +1370,8 @@ export class CumulativeHistogram {
     return Math.min(pos, this.count.length - 1);
   }
 
-  /** Write ordered pairs into a reusable array; empty histograms clear it and return null.
+  /** Write fresh pairs and Buckets into a reusable outer array; retained pairs stay unchanged.
+   * Empty histograms clear the output and return null.
    * @param {number[]} percentiles
    * @param {[number, Bucket][]} output
    * @returns {[number, Bucket][] | null}
@@ -1490,6 +1500,12 @@ function bisectLeft(arr, target) {
   return lo;
 }
 
+/** @param {Float64Array} a @param {Float64Array} b */
+function denseStorageOverlaps(a, b) {
+  return a.buffer === b.buffer && a.byteOffset < b.byteOffset + b.byteLength
+    && b.byteOffset < a.byteOffset + a.byteLength;
+}
+
 /** @param {number} count */
 function checkedCount(count) {
   assert(Number.isSafeInteger(count) && count >= 0, 'count must be a non-negative safe integer');
@@ -1537,8 +1553,7 @@ function queryInto(histogram, percentiles, output) {
       }
     }
     const bucket = new Bucket(count, histogram.config.indexToLowerBound(index), histogram.config.indexToUpperBound(index));
-    if (output[q]) { output[q][0] = p; output[q][1] = bucket; }
-    else output[q] = [p, bucket];
+    output[q] = [p, bucket];
   }
   output.length = percentiles.length;
   return output;

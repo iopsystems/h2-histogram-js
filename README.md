@@ -136,10 +136,10 @@ Keep recording on `Histogram` and choose reporting work according to the phase:
 | Phase | API | Storage and cost |
 | --- | --- | --- |
 | Record/reset | `record`, `increment`, `reset()` | Recording updates one bucket without count validation; reset fills the existing `Float64Array`. No cached total/min/max is maintained. |
-| Reused dense reports | `snapshotInto(destination)`, `drainInto(destination)` | Validate compatible geometry and counts before copying; preserve destination storage. Drain then resets the source and rejects shared backing storage. Returns the destination. |
-| Aggregation | `checkedAddAssign(other)`, `Histogram.checkedSum(histograms)` | In-place addition checks every count before mutation. Sum checks every configuration first, rejects an empty collection, and returns private storage even for one input or repeated references. `merge` retains its original unchecked arithmetic. |
+| Reused dense reports | `snapshotInto(destination)`, `drainInto(destination)` | Validate compatible geometry and counts before copying; preserve destination storage. Drain then resets the source and rejects overlapping byte ranges (disjoint views of one buffer are supported). Returns the destination. |
+| Aggregation | `checkedAddAssign(other)`, `Histogram.checkedSum(histograms)` | In-place addition checks every count before mutation; disjoint same-buffer views and exact self-addition are supported, while partial overlap is rejected. Sum checks every configuration first, rejects an empty collection, and returns private storage even for one input or repeated references. `merge` retains its original unchecked arithmetic. |
 | Scalar reporting | `percentile(p)`, dense/cumulative `quantile(p)` | Direct scan of dense or sparse counts, or cumulative binary search; allocates only the returned `Bucket`. No batch containers or dense reconstruction. |
-| Reused batch reports | `percentilesInto(requests, output)` on all three classes | Reuses the caller's ordinary array and existing pair slots; allocates returned `Bucket` objects. Preserves order and duplicates. No request sorting/copy is needed. Dense/sparse queries scan per request after one total scan; cumulative queries use binary search per request. |
+| Reused batch reports | `percentilesInto(requests, output)` on all three classes | Reuses the caller's ordinary outer array; allocates a new pair and `Bucket` per request, so retained pairs remain unchanged and shared or frozen pair slots are supported. Preserves order and duplicates. No request sorting/copy is needed. Dense/sparse queries scan per request after one total scan; cumulative queries use binary search per request. |
 | Owned transforms | sparse/cumulative `merge(other)`, `downsample(groupingPower)`; cumulative `toSparse()` | Sorted column operations without dense reconstruction. Merge accepts either sparse or cumulative input and returns the receiver's representation. Downsampling requires lower grouping power and recomputes cumulative means using output bucket midpoints. |
 
 Owned `checkedSum` validates all configurations before allocating its result,
@@ -150,7 +150,7 @@ validation pass, which is necessary when preserving an existing destination.
 
 Percentiles are fractions in `[0, 1]`. Empty histograms return `null` from
 queries; `percentilesInto` also clears its output. Empty requests always produce an empty array without scanning totals. Invalid requests are checked before changing
-output. Request and output arrays must be distinct. The allocating `percentiles`
+output. The outer output array must be mutable. Request and output arrays must be distinct. The allocating `percentiles`
 API retains its original result shape; dense and sparse `percentiles` use a sorted scan,
 which may suit large batches better than repeated buffer queries.
 
@@ -169,7 +169,9 @@ Sparse and cumulative constructors copy and freeze their column arrays; their
 public `index`, `count`, and `config` references cannot be reassigned. Configs
 are immutable. Cumulative means therefore cannot become stale through snapshot
 accessors. The accepted legacy `{ validate: false }` constructor option no longer
-bypasses validation. Dense `buckets` remains a mutable escape hatch: callers must
+bypasses validation. Factories also pass through constructor validation and copying;
+this additional snapshot-boundary work keeps the invariant in one place and does
+not affect recording. Dense `buckets` remains a mutable escape hatch: callers must
 preserve its shape and safe-integer counts. No snapshot/drain operation is atomic
 or thread-safe; callers must provide exclusive access, including when sharing
 buffers with workers. These APIs introduce no concurrent recorder.

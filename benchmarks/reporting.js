@@ -27,8 +27,8 @@ phase('checkedSum', () => { sink += Histogram.checkedSum([dense, dense]).buckets
 phase('dense scalar', () => { sink += dense.percentile(.99).count; }, 'one Bucket allocated per query');
 phase('sparse scalar', () => { sink += sparse.percentile(.99).count; }, 'one Bucket allocated per query');
 phase('cumulative scalar', () => { sink += cumulative.percentile(.99).count; }, 'one Bucket allocated per query');
-phase('dense percentilesInto', () => { dense.percentilesInto(requests, output); sink += output[0][1].count; }, 'requests, result array and warmed pairs reused; Buckets allocated');
-phase('cumulative percentilesInto', () => { cumulative.percentilesInto(requests, output); sink += output[0][1].count; }, 'requests, result array and warmed pairs reused; Buckets allocated');
+phase('dense percentilesInto', () => { dense.percentilesInto(requests, output); sink += output[0][1].count; }, 'requests and outer result array reused; pairs and Buckets allocated');
+phase('cumulative percentilesInto', () => { cumulative.percentilesInto(requests, output); sink += output[0][1].count; }, 'requests and outer result array reused; pairs and Buckets allocated');
 phase('sparse snapshot', () => { sink += dense.toSparse().length; }, 'owned sparse columns allocated, validated and frozen');
 phase('cumulative snapshot', () => { sink += dense.toCumulative().mean(); }, 'owned cumulative columns and cached mean constructed');
 phase('sparse merge', () => { sink += sparse.merge(sparse).length; }, 'owned sparse output; sorted merge and column copies included');
